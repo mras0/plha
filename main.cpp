@@ -173,6 +173,7 @@ public:
         default:
             throw std::runtime_error { std::format("Header level {:d} not supported", hdr.level) };
         }
+        hdr.compressed_offset = pos_;
         skip(hdr.compressed_size);
         return true;
     }
@@ -295,9 +296,6 @@ private:
                 skip(ext_size);
             }
         }
-
-
-        hdr.compressed_offset = pos_;
     }
 };
 
@@ -331,14 +329,6 @@ public:
         return res;
     }
 
-    uint16_t buf() const
-    {
-        if (bufcnt_ < 16)
-            return static_cast<uint16_t>(bitbuf_);
-        else
-            return static_cast<uint16_t>(bitbuf_ >> (bufcnt_ - 16));
-    }
-
 private:
     const uint8_t* data_;
     const uint8_t* const end_;
@@ -348,13 +338,11 @@ private:
     void fill()
     {
         while (bufcnt_ < 16) {
-            if (data_ < end_) {
-                bitbuf_ = bitbuf_ << 8 | *data_++;
-            } else {
-                bitbuf_ <<= 8;
-                if (data_++ == end_ + 2)
-                    throw std::runtime_error { "Input overrun" };
-            }
+            bitbuf_ <<= 8;
+            if (data_ < end_)
+                bitbuf_ |= *data_++;
+            else if (++data_ == end_ + 3)
+                throw std::runtime_error { "Input overrun" };
             bufcnt_ += 8;
         }
     }
@@ -374,7 +362,7 @@ static constexpr uint32_t NC = 255 + max_match + 2 - treshold;
 static constexpr uint32_t TBIT = 5;
 static constexpr uint32_t CBIT = 9;
 
-static constexpr uint32_t NPT = 128;
+//static constexpr uint32_t NPT = 128;
 
 class HuffTable {
 public:
@@ -392,18 +380,12 @@ public:
     {
         const uint32_t n = ibs.get(nbit);
         if (!n) {
-            //std::println("WARNING: Not tested n={} in read_pt_len", n);
-            //for (uint32_t i = 0; i < num_syms_; ++i)
-            //    code_len_[i] = 0;
-            //const uint16_t c = ibs.get(nbit);
-            //for (auto& tc : table_)
-            //    tc = c;
-            //return;
-            throw std::runtime_error { "TOOD: Empty table in read_pt_len!" };
+            empty_table(ibs.get(nbit));
+            return;
         }
 
         uint32_t i = 0;
-        while (i < (int)std::min(n, NPT)) {
+        while (i < (int)std::min(n, (uint32_t)num_syms_)) {
             // k=7 -> 1110  k=8 -> 11110  k=9 -> 111110 ...
             uint16_t c = ibs.get(3);
             if (c == 7) {
@@ -413,7 +395,7 @@ public:
             code_len_[i++] = (uint8_t)c;
             if (i == special) {
                 c = ibs.get(2);
-                while (c-- && i < NPT)
+                while (c-- && i < num_syms_)
                     code_len_[i++] = 0;
             }
         }
@@ -427,13 +409,6 @@ public:
     {
         const uint32_t n = ibs.get(CBIT);
         if (!n) {
-            // std::println("WARNING: Not tested n={} in read_pt_len", n);
-            // for (uint32_t i = 0; i < num_syms_; ++i)
-            //     code_len_[i] = 0;
-            // const uint16_t c = ibs.get(nbit);
-            // for (auto& tc : table_)
-            //     tc = c;
-            // return;
             throw std::runtime_error { "TOOD: Empty table in read_c_len!" };
         }
 
@@ -489,6 +464,15 @@ private:
     uint16_t right_[tree_size];
 
     void make_table();
+
+    void empty_table(uint16_t sym)
+    {
+        for (uint32_t i = 0; i < num_syms_; ++i)
+            code_len_[i] = 0;
+        for (auto& tc : table_)
+            tc = sym;
+        return;
+    }
 };
 
 void HuffTable::make_table()
@@ -506,6 +490,8 @@ void HuffTable::make_table()
     for (uint32_t i = 0; i < num_syms_; ++i) {
         if (code_len_[i] > max_sym_bits)
             throw std::runtime_error { std::format("Invalid code length {} in make_table", code_len_[i]) };
+        if constexpr (debug)
+            std::println("{:03X} {}", i, code_len_[i]);
         count[code_len_[i]]++;
     }
 
@@ -513,6 +499,8 @@ void HuffTable::make_table()
     for (uint32_t i = 1; i <= max_sym_bits; ++i) {
         start[i] = (uint16_t)total;
         total += weight[i] * count[i];
+        if constexpr (debug)
+            std::println("{:2d} start={:04X} weight={:04X} count={} total={:04X}", i, start[i], weight[i], count[i], total);
     }
     if (total & 0xffff)
         throw std::runtime_error { std::format("Invalid total {:X} in make_table", total) };
@@ -527,9 +515,9 @@ void HuffTable::make_table()
     const uint32_t table_size = std::min(1U << table_bits_, max_table_size);
     assert(table_size == table_.size());
 
-
     memset(left_, 0, sizeof(left_));
     memset(right_, 0, sizeof(right_));
+    memset(&table_[0], 0, table_size * sizeof(table_[0]));
     uint16_t avail = num_syms_;
 
     for (uint32_t sym = 0; sym < num_syms_; ++sym) {
@@ -540,7 +528,7 @@ void HuffTable::make_table()
         const uint16_t last_code = start[clen] + weight[clen];
         start[clen] = last_code;
 
-        if constexpr (debug) {
+        if constexpr (debug && false) {
             auto bs = [&]() {
                 if (clen <= table_bits_)
                     return std::format("{:0{}b}", first_code >> (table_bits_ - clen), clen);
@@ -575,7 +563,7 @@ void HuffTable::make_table()
         }
     }
 
-    if constexpr (debug) {
+    if constexpr (debug && false) {
         for (uint32_t i = 0; i < table_size; ++i)
             std::println("{:02X} {:0{}b} {:04X}", i, i, table_bits_, table_[i]);
 
@@ -586,18 +574,21 @@ void HuffTable::make_table()
 
 class Decompressor {
 public:
+    static std::vector<uint8_t> decode(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, uint16_t dict_bits)
+    {
+        return Decompressor { data, compressed_size, uncompressed_size, dict_bits }.do_decode();
+    }
+    
+private:
     explicit Decompressor(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, uint16_t dict_bits)
         : dict_bits_ { dict_bits }
         , ibs_ { data, compressed_size }
-        , out_ ( uncompressed_size )
+        , out_(uncompressed_size)
         , ctab_ { NC, 12 }
         , ptab_ { uint16_t(dict_bits + 1), 8 }
     {
     }
 
-    std::vector<uint8_t> decode();
-
-private:
     const uint16_t dict_bits_;
     InputBitString ibs_;
     std::vector<uint8_t> out_;
@@ -605,6 +596,7 @@ private:
     HuffTable ptab_;
     uint16_t blocksize_ = 0;
 
+    std::vector<uint8_t> do_decode();
     uint16_t decode_char();
     uint32_t decode_pos();
 };
@@ -629,7 +621,7 @@ uint32_t Decompressor::decode_pos()
     return 1 + (p ? (1 << (p - 1)) | ibs_.get(p - 1) : 0);
 }
 
-std::vector<uint8_t> Decompressor::decode()
+std::vector<uint8_t> Decompressor::do_decode()
 {
     for (uint32_t outpos = 0; outpos < out_.size();) {
         const auto sym = decode_char();
@@ -644,42 +636,50 @@ std::vector<uint8_t> Decompressor::decode()
         if (outpos + len > out_.size())
             throw std::runtime_error { "Match is too long!" };
         if (pos > outpos)
-            throw std::runtime_error{ std::format("Invalid match pos {} out pos {}", pos, outpos) };
+            throw std::runtime_error { std::format("Invalid match pos {} out pos {}", pos, outpos) };
 
         for (; len--; ++outpos)
             out_[outpos] = out_[outpos - pos];
-
     }
-
     return std::move(out_);
 }
 
 
-std::vector<uint8_t> decompress_lh5(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size)
+std::vector<uint8_t> decompress(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, const uint8_t (&method)[5])
 {
-    Decompressor dc { data, compressed_size, uncompressed_size, 13 }; // 8K dict
-    return dc.decode();
+    if (!memcmp(method, "-lh0-", sizeof(method))) {
+        assert(uncompressed_size == compressed_size);
+        return std::vector<uint8_t>(data, data + uncompressed_size);
+    }
+    if (!memcmp(method, "-lh5-", sizeof(method)))
+        return Decompressor::decode(data, compressed_size, uncompressed_size, 13); // 8K dict
+
+    throw std::runtime_error { std::format("Unsupported compression method {:5.5s}", (const char*)method) };
+}
+
+std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeader& hdr)
+{
+    auto res = decompress(&data[hdr.compressed_offset], hdr.compressed_size, hdr.original_size, hdr.compression_method);
+    if (auto crc = crc16(res.data(), res.size()); crc != hdr.crc)
+        throw std::runtime_error { std::format("CRC mismatch for {}. {:04x} <> {:04x}", hdr.filename.c_str(), crc, hdr.crc) };
+    return res;
 }
 
 int main()
 {
     try {
-        //const char* filename = R"(c:\Users\micha\Downloads\DylanDog_Complete_WHD.lha)"; // lh0/lh5
+        const char* filename = R"(c:\Users\micha\Downloads\DylanDog_Complete_WHD.lha)"; // lh0/lh5
         //const char* filename = R"(c:\Users\micha\Downloads\WHDLoad_dev.lha)";// lh0/lh5
         //const char* filename = R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\Kefrens-AnkhInPopland.lha)";
         //const char* filename = R"(c:\Users\micha\Downloads\tg93mods.lha)"; // Header level 0
         //const char* filename = R"(c:\Users\micha\Downloads\3dstars.lha)"; // Header level 0 with directory
-        const char* filename = R"(explode.lha)";
+        //const char* filename = R"(explode.lha)";
         auto data = read_file(filename);
         LhaFile lha { data.data(), data.size() };
         for (LhaHeader hdr; lha.next(hdr);) {
             // Note: The filename can be NUL-terminated and contain version info afterwards
             std::println("{:5.5s} {:6d} {:6d} {}", (const char*)hdr.compression_method, hdr.compressed_size, hdr.original_size, hdr.filename);
-            auto res = decompress_lh5(&data[hdr.compressed_offset], hdr.compressed_size, hdr.original_size);
-            //hexdump(res.data(), res.size());
-            //write_file("out.s", res.data(), res.size());
-            if (auto crc = crc16(res.data(), res.size()); crc != hdr.crc)
-                throw std::runtime_error { std::format("CRC mismatch for {}. {:04x} <> {:04x}", hdr.filename.c_str(), crc, hdr.crc) };
+            (void)decompress(data, hdr);
         }
 
         //auto f = read_file(R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\AnkhInPopland Install\source\explode.s)");
