@@ -25,4 +25,12 @@ endif()
 
 add_executable(plha
     main.cpp
+    crc16.cpp crc16.h
+    fileio.cpp fileio.h
+    util.cpp util.h
+    lhaheader.h
+    lhafile.cpp lhafile.h
+    lhaconsts.h
+    ibs.cpp ibs.h
+    decompress.cpp decompress.h
     )
