@@ -3,10 +3,12 @@
 #include <stdexcept>
 #include <print>
 #include <algorithm>
+#include <cstring>
 
 LhaFileReader::LhaFileReader(const uint8_t* data, size_t size)
     : data_ { data }
     , size_ { size }
+    , pos_ { 0 }
 {
 }
 
@@ -26,7 +28,7 @@ bool LhaFileReader::next(LhaHeader& hdr)
     skip(1); // Header level
     switch (hdr.level) {
     case 0:
-        if (data_[hdr.header_offset] == 0 && data_[hdr.header_offset] == 0) {
+        if (data_[hdr.header_offset] == 0 && data_[hdr.header_offset + 1] == 0) {
             std::println("Warning: trailing 0's (?) with {} bytes remain", remaining());
             return false;
         }
@@ -86,7 +88,7 @@ uint32_t LhaFileReader::get_u32()
 void LhaFileReader::get_raw(uint8_t* dest, size_t size)
 {
     check_remaining(size);
-    memcpy(dest, &data_[pos_], size);
+    std::memcpy(dest, &data_[pos_], size);
     pos_ += size;
 }
 
@@ -188,3 +190,7 @@ void LhaFileReader::handle_extended_headers(LhaHeader& hdr)
     }
 }
 
+bool is_method(const uint8_t (&l)[5], const uint8_t (&r)[5])
+{
+    return !memcmp(l, r, sizeof(l));
+}

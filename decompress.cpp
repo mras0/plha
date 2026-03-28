@@ -5,6 +5,7 @@
 #include "lhaheader.h"
 #include <cassert>
 #include <stdexcept>
+#include <cstring>
 #include <print>
 
 class HuffTable {
@@ -15,7 +16,7 @@ public:
         , code_len_(num_syms)
     {
         assert(table_bits_ <= 16);
-        assert(1 << table_bits_ <= max_table_size);
+        assert(1U << table_bits_ <= max_table_size);
         table_.resize(size_t(1) << table_bits_);
     }
 
@@ -28,7 +29,7 @@ public:
         }
 
         uint32_t i = 0;
-        while (i < (int)std::min(n, (uint32_t)num_syms_)) {
+        while (i < std::min(n, (uint32_t)num_syms_)) {
             // k=7 -> 1110  k=8 -> 11110  k=9 -> 111110 ...
             uint16_t c = ibs.get(3);
             if (c == 7) {
@@ -57,7 +58,7 @@ public:
         }
 
         uint32_t i = 0;
-        while (i < (int)std::min(n, (uint32_t)num_syms_)) {
+        while (i < std::min(n, (uint32_t)num_syms_)) {
             auto len = tab.decode(ibs);
             if (len <= 2) {
                 if (len == 0)
@@ -159,9 +160,9 @@ void HuffTable::make_table()
     const uint32_t table_size = std::min(1U << table_bits_, max_table_size);
     assert(table_size == table_.size());
 
-    memset(left_, 0, sizeof(left_));
-    memset(right_, 0, sizeof(right_));
-    memset(&table_[0], 0, table_size * sizeof(table_[0]));
+    std::memset(left_, 0, sizeof(left_));
+    std::memset(right_, 0, sizeof(right_));
+    std::memset(&table_[0], 0, table_size * sizeof(table_[0]));
     uint16_t avail = num_syms_;
 
     for (uint32_t sym = 0; sym < num_syms_; ++sym) {
@@ -330,25 +331,35 @@ std::vector<uint8_t> Decompressor::do_decode()
 }
 
 
-std::vector<uint8_t> decompress(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, const uint8_t (&method)[5])
+std::vector<uint8_t> decompress(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, LhaMethod method)
 {
-    if (!memcmp(method, "-lh0-", sizeof(method))) {
+    uint16_t dict_bits;
+    switch (method) {
+    case LHA_METHOD_LH0:
         assert(uncompressed_size == compressed_size);
         return std::vector<uint8_t>(data, data + uncompressed_size);
+    case LHA_METHOD_LH5:
+        dict_bits = 13;
+        break;
+    case LHA_METHOD_LH6:
+        dict_bits = 15;
+        break;
+    case LHA_METHOD_LH7:
+        dict_bits = 16;
+        break;
+    default:
+        throw std::runtime_error { std::format("Unsupported compression method {}", (int)method) };
     }
-    if (!memcmp(method, "-lh5-", sizeof(method)))
-        return Decompressor::decode(data, compressed_size, uncompressed_size, 13); // 8K dict
-    if (!memcmp(method, "-lh6-", sizeof(method)))
-        return Decompressor::decode(data, compressed_size, uncompressed_size, 15); // 32K dict
-    if (!memcmp(method, "-lh7-", sizeof(method)))
-        return Decompressor::decode(data, compressed_size, uncompressed_size, 16); // 64K dict
-
-    throw std::runtime_error { std::format("Unsupported compression method {:5.5s}", (const char*)method) };
+    return Decompressor::decode(data, compressed_size, uncompressed_size, dict_bits);
 }
 
 std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeader& hdr)
 {
-    auto res = decompress(&data[hdr.compressed_offset], hdr.compressed_size, hdr.original_size, hdr.compression_method);
+    const auto method = lha_method_from_id(hdr.compression_method);
+    if (method == LHA_METHOD_UNKNOWN)
+        throw std::runtime_error { std::format("Unsupported compression method {:5.5s}", (const char*)hdr.compression_method) };
+
+    auto res = decompress(&data[hdr.compressed_offset], hdr.compressed_size, hdr.original_size, method);
     if (auto crc = crc16(res.data(), res.size()); crc != hdr.crc)
         throw std::runtime_error { std::format("CRC mismatch for {}. {:04x} <> {:04x}", hdr.filename.c_str(), crc, hdr.crc) };
     return res;

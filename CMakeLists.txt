@@ -29,7 +29,7 @@ add_library(plha_lib STATIC
     util.cpp util.h
     lhaheader.h
     lhafile.cpp lhafile.h
-    lhaconsts.h
+    lhaconsts.cpp lhaconsts.h
     ibs.cpp ibs.h
     decompress.cpp decompress.h
     )

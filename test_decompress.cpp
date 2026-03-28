@@ -14,7 +14,7 @@ void test_file(const std::string& filename)
     for (LhaHeader hdr; lha.next(hdr);) {
         // Note: The filename can be NUL-terminated and contain version info afterwards
         std::println("{:5.5s} {:6d} {:6d} {}{}", (const char*)hdr.compression_method, hdr.compressed_size, hdr.original_size, hdr.dirname, hdr.filename);
-        if (!memcmp(hdr.compression_method, "-lhd-", 5))
+        if (lha_method_from_id(hdr.compression_method) == LHA_METHOD_DIR)
             continue;
         (void)decompress(data, hdr);
     }

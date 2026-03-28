@@ -31,4 +31,6 @@ private:
     void handle_extended_headers(LhaHeader& hdr);
 };
 
+bool is_method(const uint8_t (&l)[5], const uint8_t (&r)[5]);
+
 #endif
