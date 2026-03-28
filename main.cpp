@@ -31,11 +31,24 @@ std::vector<std::uint8_t> read_file(const std::string& filename)
     size_t len = ftell(fp.get());
     std::vector<std::uint8_t> data(len);
     fseek(fp.get(), 0, SEEK_SET);
-    if (len)
-        fread(&data[0], 1, len, fp.get());
+    if (len) {
+        if (auto l = fread(&data[0], 1, len, fp.get()); l != len)
+            throw std::runtime_error { std::format("Error reading from \"{}\" {} <> {}", filename, l, len) };
+    }
     return data;
 }
 
+void write_file(const std::string& filename, const void* data, size_t size)
+{
+    auto fp = open_file(filename, "wb");
+    if (auto sz = fwrite(data, 1, size, fp.get()); sz != size)
+        throw std::runtime_error { std::format("Error writing to \"{}\" {} <> {}", filename, sz, size) };
+}
+
+void write_file(const std::string& filename, const std::vector<uint8_t>& data)
+{
+    write_file(filename, data.data(), data.size());
+}
 
 void hexdump(const void* data, size_t size, size_t addr = 0)
 {
@@ -130,8 +143,9 @@ struct LhaHeader {
 
 class LhaFile {
 public:
-    explicit LhaFile(std::vector<uint8_t>&& data)
-        : data_ { std::move(data) }
+    explicit LhaFile(const uint8_t* data, size_t size)
+        : data_ { data }
+        , size_ { size }
     {
     }
 
@@ -164,12 +178,13 @@ public:
     }
 
 private:
-    std::vector<uint8_t> data_;
+    const uint8_t* data_;
+    size_t size_;
     size_t pos_;
 
     size_t remaining() const
     {
-        return data_.size() - pos_;
+        return size_ - pos_;
     }
 
     void check_remaining(size_t count)
@@ -286,6 +301,366 @@ private:
     }
 };
 
+class InputBitString {
+public:
+    explicit InputBitString(const uint8_t* data, uint32_t size)
+        : data_ { data }
+        , end_ { data + size }
+    {
+        fill();
+    }
+
+    void drop(uint32_t cnt)
+    {
+        assert(cnt <= bufcnt_);
+        bufcnt_ -= cnt;
+        bitbuf_ &= (1 << bufcnt_) - 1;
+        fill();
+    }
+
+    uint16_t peek(uint32_t cnt)
+    {
+        assert(cnt <= bufcnt_);
+        return static_cast<uint16_t>(bitbuf_ >> (bufcnt_ - cnt));
+    }
+
+    uint16_t get(uint32_t cnt)
+    {
+        auto res = peek(cnt);
+        drop(cnt);
+        return res;
+    }
+
+    uint16_t buf() const
+    {
+        if (bufcnt_ < 16)
+            return static_cast<uint16_t>(bitbuf_);
+        else
+            return static_cast<uint16_t>(bitbuf_ >> (bufcnt_ - 16));
+    }
+
+private:
+    const uint8_t* data_;
+    const uint8_t* const end_;
+    uint32_t bitbuf_ = 0;
+    uint32_t bufcnt_ = 0;
+
+    void fill()
+    {
+        while (bufcnt_ < 16) {
+            if (data_ < end_) {
+                bitbuf_ = bitbuf_ << 8 | *data_++;
+            } else {
+                bitbuf_ <<= 8;
+                if (data_++ == end_ + 2)
+                    throw std::runtime_error { "Input overrun" };
+            }
+            bufcnt_ += 8;
+        }
+    }
+};
+
+//static constexpr uint32_t max_dict_bits = 13; // LH5
+//static constexpr uint32_t max_dict_size = 1 << max_dict_bits;
+
+static constexpr uint32_t max_match = 256;
+static constexpr uint32_t treshold = 3;
+
+//static constexpr uint32_t NP = max_dict_bits + 1;
+static constexpr uint32_t NT = 16 + 3; // USHRT_BIT + 3
+static constexpr uint32_t NC = 255 + max_match + 2 - treshold;
+
+//static constexpr uint32_t PBIT = 4; // 5; // For LH4/LH5, 6 and 7 have PBIT = 5
+static constexpr uint32_t TBIT = 5;
+static constexpr uint32_t CBIT = 9;
+
+static constexpr uint32_t NPT = 128;
+
+class HuffTable {
+public:
+    explicit HuffTable(uint16_t num_syms, uint32_t table_bits)
+        : num_syms_ { num_syms }
+        , table_bits_ { table_bits }
+        , code_len_(num_syms)
+    {
+        assert(table_bits_ <= 16);
+        assert(1 << table_bits_ <= max_table_size);
+        table_.resize(size_t(1) << table_bits_);
+    }
+
+    void read_pt_len(InputBitString& ibs, uint32_t nbit, uint32_t special = UINT32_MAX)
+    {
+        const uint32_t n = ibs.get(nbit);
+        if (!n) {
+            //std::println("WARNING: Not tested n={} in read_pt_len", n);
+            //for (uint32_t i = 0; i < num_syms_; ++i)
+            //    code_len_[i] = 0;
+            //const uint16_t c = ibs.get(nbit);
+            //for (auto& tc : table_)
+            //    tc = c;
+            //return;
+            throw std::runtime_error { "TOOD: Empty table in read_pt_len!" };
+        }
+
+        uint32_t i = 0;
+        while (i < (int)std::min(n, NPT)) {
+            // k=7 -> 1110  k=8 -> 11110  k=9 -> 111110 ...
+            uint16_t c = ibs.get(3);
+            if (c == 7) {
+                while (ibs.get(1))
+                    ++c;
+            }
+            code_len_[i++] = (uint8_t)c;
+            if (i == special) {
+                c = ibs.get(2);
+                while (c-- && i < NPT)
+                    code_len_[i++] = 0;
+            }
+        }
+        while (i < num_syms_)
+            code_len_[i++] = 0;
+
+        make_table();
+    }
+
+    void read_c_len(InputBitString& ibs, const HuffTable& tab)
+    {
+        const uint32_t n = ibs.get(CBIT);
+        if (!n) {
+            // std::println("WARNING: Not tested n={} in read_pt_len", n);
+            // for (uint32_t i = 0; i < num_syms_; ++i)
+            //     code_len_[i] = 0;
+            // const uint16_t c = ibs.get(nbit);
+            // for (auto& tc : table_)
+            //     tc = c;
+            // return;
+            throw std::runtime_error { "TOOD: Empty table in read_c_len!" };
+        }
+
+        uint32_t i = 0;
+        while (i < (int)std::min(n, (uint32_t)num_syms_)) {
+            auto len = tab.decode(ibs);
+            if (len <= 2) {
+                if (len == 0)
+                    len = 1;
+                else if (len == 1)
+                    len = ibs.get(4) + 3;
+                else
+                    len = ibs.get(CBIT) + 20;
+                if (i + len > table_.size())
+                    throw std::runtime_error { "Invalid table in c_len" };
+                while (len--)
+                    code_len_[i++] = 0;
+            } else {
+                code_len_[i++] = uint8_t(len - 2);
+            }
+        }
+        while (i < num_syms_)
+            code_len_[i++] = 0;
+
+        make_table();
+    }
+
+    uint16_t decode(InputBitString& ibs) const
+    {
+        auto sym = table_[ibs.peek(table_bits_)];
+        if (sym < num_syms_) {
+            ibs.drop(code_len_[sym]);
+        } else {
+            ibs.drop(table_bits_);
+            do {
+                if (ibs.get(1))
+                    sym = right_[sym];
+                else
+                    sym = left_[sym];
+            } while (sym >= num_syms_);
+        }
+        return sym;
+    }
+
+private:
+    static constexpr uint32_t max_table_size = 4096;
+    static constexpr uint32_t tree_size = 2 * NC - 1;
+    const uint16_t num_syms_;
+    const uint32_t table_bits_;
+    std::vector<uint8_t> code_len_;
+    std::vector<uint16_t> table_;
+    uint16_t left_[tree_size];
+    uint16_t right_[tree_size];
+
+    void make_table();
+};
+
+void HuffTable::make_table()
+{
+    static constexpr uint32_t max_sym_bits = 16;
+    static constexpr bool debug = false;
+
+    uint16_t count[max_sym_bits + 1] = { 0 };
+    uint16_t weight[max_sym_bits + 1];
+    uint16_t start[max_sym_bits + 1];
+    
+    for (uint32_t i = 1; i <= max_sym_bits; ++i)
+        weight[i] = 1 << (max_sym_bits - i);
+
+    for (uint32_t i = 0; i < num_syms_; ++i) {
+        if (code_len_[i] > max_sym_bits)
+            throw std::runtime_error { std::format("Invalid code length {} in make_table", code_len_[i]) };
+        count[code_len_[i]]++;
+    }
+
+    uint32_t total = 0;
+    for (uint32_t i = 1; i <= max_sym_bits; ++i) {
+        start[i] = (uint16_t)total;
+        total += weight[i] * count[i];
+    }
+    if (total & 0xffff)
+        throw std::runtime_error { std::format("Invalid total {:X} in make_table", total) };
+
+    const uint16_t m = uint16_t(16 - table_bits_);
+
+    for (uint32_t i = 1; i <= table_bits_; ++i) {
+        start[i] >>= m;
+        weight[i] >>= m;
+    }
+
+    const uint32_t table_size = std::min(1U << table_bits_, max_table_size);
+    assert(table_size == table_.size());
+
+
+    memset(left_, 0, sizeof(left_));
+    memset(right_, 0, sizeof(right_));
+    uint16_t avail = num_syms_;
+
+    for (uint32_t sym = 0; sym < num_syms_; ++sym) {
+        const uint32_t clen = code_len_[sym];
+        if (!clen)
+            continue;
+        const uint16_t first_code = start[clen];
+        const uint16_t last_code = start[clen] + weight[clen];
+        start[clen] = last_code;
+
+        if constexpr (debug) {
+            auto bs = [&]() {
+                if (clen <= table_bits_)
+                    return std::format("{:0{}b}", first_code >> (table_bits_ - clen), clen);
+                else
+                    return std::format("{:0{}b}", first_code >> (16 - clen), clen);
+            };
+
+            std::println("{:02X} {} {}", sym, clen, bs());
+        }
+
+        if (clen <= table_bits_) {
+            assert(first_code < table_size);
+            assert(last_code <= table_size);
+            for (uint32_t i = first_code; i < last_code; ++i)
+                table_[i] = (uint16_t)sym;
+        } else {
+            uint32_t code = first_code;
+            if (code >> m > table_size)
+                throw std::runtime_error { std::format("Invalid table entry first_code {:X}", first_code) };
+            uint16_t* entry = &table_[code >> m];
+            code <<= table_bits_;
+            uint32_t tree_len = clen - table_bits_;
+            while (tree_len--) {
+                if (!*entry) {
+                    left_[avail] = right_[avail] = 0;
+                    *entry = avail++;
+                }
+                entry = (code & 0x8000 ? right_ : left_) + *entry;
+                code <<= 1;
+            }
+            *entry = (uint16_t)sym;
+        }
+    }
+
+    if constexpr (debug) {
+        for (uint32_t i = 0; i < table_size; ++i)
+            std::println("{:02X} {:0{}b} {:04X}", i, i, table_bits_, table_[i]);
+
+        for (uint32_t i = num_syms_; i < avail; ++i)
+            std::println("{:02X} left = {:02X} right = {:02X}", i, left_[i], right_[i]);
+    }
+}
+
+class Decompressor {
+public:
+    explicit Decompressor(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, uint16_t dict_bits)
+        : dict_bits_ { dict_bits }
+        , ibs_ { data, compressed_size }
+        , out_ ( uncompressed_size )
+        , ctab_ { NC, 12 }
+        , ptab_ { uint16_t(dict_bits + 1), 8 }
+    {
+    }
+
+    std::vector<uint8_t> decode();
+
+private:
+    const uint16_t dict_bits_;
+    InputBitString ibs_;
+    std::vector<uint8_t> out_;
+    HuffTable ctab_;
+    HuffTable ptab_;
+    uint16_t blocksize_ = 0;
+
+    uint16_t decode_char();
+    uint32_t decode_pos();
+};
+
+uint16_t Decompressor::decode_char()
+{
+    if (!blocksize_) {
+        blocksize_ = ibs_.get(16);
+        HuffTable clen_table { NT, 8 };
+        clen_table.read_pt_len(ibs_, TBIT, 3);
+        ctab_.read_c_len(ibs_, clen_table);
+        ptab_.read_pt_len(ibs_, dict_bits_ < 14 ? 4 : 5);
+    }
+    blocksize_--;
+
+    return ctab_.decode(ibs_);
+}
+
+uint32_t Decompressor::decode_pos()
+{
+    uint16_t p = ptab_.decode(ibs_);
+    return 1 + (p ? (1 << (p - 1)) | ibs_.get(p - 1) : 0);
+}
+
+std::vector<uint8_t> Decompressor::decode()
+{
+    for (uint32_t outpos = 0; outpos < out_.size();) {
+        const auto sym = decode_char();
+        if (sym < 256) {
+            out_[outpos++] = (uint8_t)sym;
+            continue;
+        }
+
+        uint32_t len = sym - (256 - treshold);
+        const uint32_t pos = decode_pos();
+
+        if (outpos + len > out_.size())
+            throw std::runtime_error { "Match is too long!" };
+        if (pos > outpos)
+            throw std::runtime_error{ std::format("Invalid match pos {} out pos {}", pos, outpos) };
+
+        for (; len--; ++outpos)
+            out_[outpos] = out_[outpos - pos];
+
+    }
+
+    return std::move(out_);
+}
+
+
+std::vector<uint8_t> decompress_lh5(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size)
+{
+    Decompressor dc { data, compressed_size, uncompressed_size, 13 }; // 8K dict
+    return dc.decode();
+}
+
 int main()
 {
     try {
@@ -293,12 +668,18 @@ int main()
         //const char* filename = R"(c:\Users\micha\Downloads\WHDLoad_dev.lha)";// lh0/lh5
         //const char* filename = R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\Kefrens-AnkhInPopland.lha)";
         //const char* filename = R"(c:\Users\micha\Downloads\tg93mods.lha)"; // Header level 0
-        const char* filename = R"(c:\Users\micha\Downloads\3dstars.lha)"; // Header level 0 with directory
+        //const char* filename = R"(c:\Users\micha\Downloads\3dstars.lha)"; // Header level 0 with directory
+        const char* filename = R"(explode.lha)";
         auto data = read_file(filename);
-        LhaFile lha { std::move(data) };
+        LhaFile lha { data.data(), data.size() };
         for (LhaHeader hdr; lha.next(hdr);) {
             // Note: The filename can be NUL-terminated and contain version info afterwards
             std::println("{:5.5s} {:6d} {:6d} {}", (const char*)hdr.compression_method, hdr.compressed_size, hdr.original_size, hdr.filename);
+            auto res = decompress_lh5(&data[hdr.compressed_offset], hdr.compressed_size, hdr.original_size);
+            //hexdump(res.data(), res.size());
+            //write_file("out.s", res.data(), res.size());
+            if (auto crc = crc16(res.data(), res.size()); crc != hdr.crc)
+                throw std::runtime_error { std::format("CRC mismatch for {}. {:04x} <> {:04x}", hdr.filename.c_str(), crc, hdr.crc) };
         }
 
         //auto f = read_file(R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\AnkhInPopland Install\source\explode.s)");
