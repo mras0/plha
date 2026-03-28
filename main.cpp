@@ -653,6 +653,44 @@ uint32_t Decompressor::decode_pos()
 
 std::vector<uint8_t> Decompressor::do_decode()
 {
+#if 0
+    const uint32_t dict_mask = (1 << dict_bits_) - 1;
+    std::vector<uint8_t> dict(size_t(1) << dict_bits_, ' ');
+    uint32_t dictpos = 0;
+
+    const uint32_t decoded_size = (uint32_t)out_.size();
+    out_.clear(); // XXX....
+
+    for (uint32_t decoded = 0; decoded < decoded_size;) {
+        const auto sym = decode_char();
+        if (sym < 256) {
+            dict[dictpos] = (uint8_t)sym;
+            if (dictpos++ == dict_mask) {
+                out_.insert(out_.end(), &dict[0], &dict[0] + dictpos);
+                dictpos = 0;
+            }
+            ++decoded;
+            continue;
+        }
+
+        const uint32_t len = sym - (256 - treshold);
+        const uint32_t off = decode_pos();
+        const uint32_t pos = (dictpos - off) & dict_mask;
+        decoded += len;
+
+        for (uint32_t i = 0; i < len; ++i) {
+            uint8_t c = dict[(pos + i) & dict_mask];
+            dict[dictpos] = c;
+            if (dictpos++ == dict_mask) {
+                out_.insert(out_.end(), &dict[0], &dict[0] + dictpos);
+                dictpos = 0;
+            }
+        }
+    }
+    out_.insert(out_.end(), &dict[0], &dict[0] + dictpos);
+    assert(out_.size() == decoded_size);
+
+#else
     for (uint32_t outpos = 0; outpos < out_.size();) {
         const auto sym = decode_char();
         if (sym < 256) {
@@ -661,15 +699,19 @@ std::vector<uint8_t> Decompressor::do_decode()
         }
 
         uint32_t len = sym - (256 - treshold);
-        const uint32_t pos = decode_pos();
+        uint32_t pos = decode_pos();
 
         if (outpos + len > out_.size())
             throw std::runtime_error { "Match is too long!" };
-        if (pos > outpos)
-            throw std::runtime_error { std::format("Invalid match pos {} out pos {}", pos, outpos) };
+        while (pos > outpos) {
+            // The dictionary is initially filled with spaces...
+            out_[outpos++] = ' ';
+            --len;
+        }
         for (; len--; ++outpos)
             out_[outpos] = out_[outpos - pos];
     }
+#endif
     return std::move(out_);
 }
 
@@ -724,7 +766,7 @@ int main()
             R"(spaces.lha)",
             R"(c:\Users\micha\Downloads\SDK_54.16.lha)", // lh0/lh6
             R"(c:\Users\micha\Downloads\elk-knarkzilla.lha)", // Empty table in c_len     
-            R"(c:\Users\micha\Downloads\gcc68.lha)", // lhz7/header level 2, match position > outpos -- TODO
+            R"(c:\Users\micha\Downloads\gcc68.lha)", // lhz7/header level 2, match position > outpos
         };
 
         for (const auto& fn : tests)
