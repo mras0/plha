@@ -1,1 +1,3 @@
-build*/ 
+build*/
+test_comp/
+test_decomp/

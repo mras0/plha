@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(plha C CXX)
+project(plha CXX)
 
 if (MSVC)
     set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "Supported build configurations" FORCE)
@@ -23,8 +23,7 @@ if (WIN32)
     add_definitions("-DWIN32 -D_WIN32 -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600")
 endif()
 
-add_executable(plha
-    main.cpp
+add_library(plha_lib STATIC
     crc16.cpp crc16.h
     fileio.cpp fileio.h
     util.cpp util.h
@@ -34,3 +33,14 @@ add_executable(plha
     ibs.cpp ibs.h
     decompress.cpp decompress.h
     )
+
+add_executable(test_decompress
+    test_decompress.cpp
+    )
+target_link_libraries(test_decompress plha_lib)
+
+add_executable(plha
+    main.cpp
+    )
+target_link_libraries(plha plha_lib)
+
