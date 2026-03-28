@@ -32,6 +32,7 @@ add_library(plha_lib STATIC
     lhaconsts.cpp lhaconsts.h
     ibs.cpp ibs.h
     decompress.cpp decompress.h
+    obs.cpp obs.h
     )
 
 add_executable(test_decompress

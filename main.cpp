@@ -5,6 +5,7 @@
 #include "fileio.h"
 #include "util.h"
 #include "lhaconsts.h"
+#include "obs.h"
 
 static constexpr uint16_t window_bits = 13; // LH5
 static constexpr uint32_t window_size = 1U << window_bits;
@@ -139,6 +140,7 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
     exit(1);
 }
 
+
 void test_file(const std::string& filename)
 {
     auto data = read_file(filename);
@@ -154,9 +156,25 @@ void test_dir(const std::string& dir_path)
         test_file(e.path().string());
 }
 
+
+#include "ibs.h"
+void test_obs()
+{
+    OutputBitString obs {};
+    obs.put(0xABCD, 16);
+    obs.put(42, 7);
+    obs.put(123, 8);
+    const auto res = obs.finish();
+    InputBitString ibs { res.data(), (uint32_t)res.size() };
+    assert(ibs.get(16) == 0xABCD);
+    assert(ibs.get(7) == 42);
+    assert(ibs.get(8) == 123);
+}
+
 int main()
 {
     try {
+        test_obs();
         const std::string dir = "../test_comp/";
         test_file(dir + "Green Eggs and Ham.txt");
         test_dir(dir);
