@@ -313,7 +313,7 @@ std::vector<uint8_t> Decompressor::do_decode()
             continue;
         }
 
-        uint32_t len = sym - (256 - treshold);
+        uint32_t len = (sym - 256) + min_match_len;
         uint32_t pos = decode_pos();
 
         if (outpos + len > out_.size())
