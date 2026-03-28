@@ -166,6 +166,10 @@ public:
         skip(1); // Header level
         switch (hdr.level) {
         case 0:
+            if (data_[hdr.header_offset] == 0 && data_[hdr.header_offset] == 0) {
+                std::println("Warning: trailing 0's (?) with {} bytes remain", remaining());
+                return false;
+            }
             read_level0_header(hdr);
             break;
         case 1:
@@ -266,8 +270,10 @@ private:
         if (ext_hdr_size < 0)
             throw std::runtime_error { std::format("Invalid header size. Extended header size {}", ext_hdr_size) };
         if (ext_hdr_size) {
+            std::println("Possible extended header in level0"); // Most likely just garbage
             hexdump(&data_[pos_], ext_hdr_size);
-            throw std::runtime_error { "TODO! extended header in level0" };
+            skip(ext_hdr_size);
+            //throw std::runtime_error { "TODO! extended header in level0" };
         }
     }
 
@@ -742,6 +748,7 @@ std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeade
 
 void test_file(const std::string& filename)
 {
+    std::println("{}", filename);
     auto data = read_file(filename);
     LhaFile lha { data.data(), data.size() };
     for (LhaHeader hdr; lha.next(hdr);) {
@@ -753,10 +760,36 @@ void test_file(const std::string& filename)
     }
 }
 
+#include <filesystem>
+void test_dir(const std::string& dir_path)
+{
+    namespace fs = std::filesystem;
+    for (const auto& e : fs::recursive_directory_iterator { dir_path }) {
+        try {
+            if (e.is_directory())
+                continue;
+            const auto path = e.path();
+            if (path.extension() != ".lha")
+                continue;
+            if (path.filename() == "im-tools.lha")
+                continue;
+            if (path.filename().u8string().starts_with(u8"bgui"))
+                continue;
+        } catch (const std::exception& ex) {
+            std::println("{} - {}", e.path().string(), ex.what());
+            continue;
+        }
+
+        test_file(e.path().string());
+    }
+}
+
 int main()
 {
     try {
         const char* const tests[] = {
+            R"(c:\temp\os-source\aug.cats\av\update_src\av.lha)", // 0 byte padded
+            //R"(c:\Users\micha\Downloads\im-tools.lha)", // no CRC (?)
             R"(c:\Users\micha\Downloads\DylanDog_Complete_WHD.lha)", // lh0/lh5
             R"(c:\Users\micha\Downloads\WHDLoad_dev.lha)",// lh0/lh5
             R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\Kefrens-AnkhInPopland.lha)",
@@ -768,6 +801,13 @@ int main()
             R"(c:\Users\micha\Downloads\elk-knarkzilla.lha)", // Empty table in c_len     
             R"(c:\Users\micha\Downloads\gcc68.lha)", // lhz7/header level 2, match position > outpos
         };
+
+        //test_dir(R"(c:\Users\micha\Downloads\)");
+        //test_dir(R"(c:\temp\)");
+        //test_dir(R"(c:\prog\amiga\)");
+        //test_dir(R"(c:\prog)");
+        test_dir(R"(c:\tools)");
+        //exit(0);
 
         for (const auto& fn : tests)
             test_file(fn);
