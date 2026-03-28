@@ -137,6 +137,7 @@ struct LhaHeader {
     uint32_t original_size;
     uint32_t mod_time;
     std::string filename;
+    std::string dirname;
     uint16_t crc;
     uint8_t os;
 };
@@ -169,6 +170,9 @@ public:
             break;
         case 1:
             read_level1_header(hdr);
+            break;
+        case 2:
+            read_level2_header(hdr);
             break;
         default:
             throw std::runtime_error { std::format("Header level {:d} not supported", hdr.level) };
@@ -252,6 +256,10 @@ private:
         check_header_checksum(hdr);
         hdr.filename = get_string(get_u8());
         std::replace(hdr.filename.begin(), hdr.filename.end(), '\\', '/');
+        if (const auto sep = hdr.filename.find_last_of('/'); sep != std::string::npos) {
+            hdr.dirname = hdr.filename.substr(0, sep + 1);
+            hdr.filename = hdr.filename.substr(sep + 1);
+        }
         hdr.crc = get_u16();
 
         const int ext_hdr_size = (int)(pos_ - hdr.header_offset) - (data_[hdr.header_offset] + 2);
@@ -271,9 +279,24 @@ private:
         hdr.filename = get_string(get_u8());
         hdr.crc = get_u16();
         hdr.os = get_u8();
+        handle_extended_headers(hdr);
+    }
 
+    void read_level2_header(LhaHeader& hdr)
+    {
+        const uint16_t hdr_size = data_[hdr.header_offset] | data_[hdr.header_offset + 1];
+        hdr.crc = get_u16();
+        hdr.os = get_u8();
+        handle_extended_headers(hdr);
+        if (pos_ != hdr.header_offset + hdr_size)
+            throw std::runtime_error { std::format("Invalid level 2 header size") };
+    }
+
+    void handle_extended_headers(LhaHeader& hdr)
+    {
         for (uint16_t ext_size; (ext_size = get_u16()) != 0;) {
-            hdr.compressed_size -= ext_size;
+            if (hdr.level == 1)
+                hdr.compressed_size -= ext_size;
             ext_size -= 2;
             check_remaining(ext_size);
             if (!ext_size)
@@ -284,12 +307,18 @@ private:
             case 0x00: // Common header. Has CRC16, but what is it over exactly?
                 skip(ext_size);
                 break;
-            case 0x02: {
-                auto dirname = get_string(ext_size);
-                std::replace(dirname.begin(), dirname.end(), '\xFF', '/');
-                hdr.filename.insert(hdr.filename.begin(), dirname.begin(), dirname.end());
+            case 0x01:
+                hdr.filename = get_string(ext_size);
                 break;
-            }
+            case 0x02:
+                hdr.dirname = get_string(ext_size);
+                std::replace(hdr.dirname.begin(), hdr.dirname.end(), '\xFF', '/');
+                break;
+            case 0x50: // Permissions (size = 2)
+            case 0x51: // GID/UID (size = 4)
+            case 0x54: // UNIX timestamp (size = 4)
+                skip(ext_size);
+                break;
             default:
                 std::println("TODO: Extended header 0x{:02X} size 0x{:X}", type, ext_size);
                 hexdump(&data_[pos_], ext_size);
@@ -409,7 +438,8 @@ public:
     {
         const uint32_t n = ibs.get(CBIT);
         if (!n) {
-            throw std::runtime_error { "TOOD: Empty table in read_c_len!" };
+            empty_table(ibs.get(CBIT));
+            return;
         }
 
         uint32_t i = 0;
@@ -637,7 +667,6 @@ std::vector<uint8_t> Decompressor::do_decode()
             throw std::runtime_error { "Match is too long!" };
         if (pos > outpos)
             throw std::runtime_error { std::format("Invalid match pos {} out pos {}", pos, outpos) };
-
         for (; len--; ++outpos)
             out_[outpos] = out_[outpos - pos];
     }
@@ -653,6 +682,10 @@ std::vector<uint8_t> decompress(const uint8_t* data, uint32_t compressed_size, u
     }
     if (!memcmp(method, "-lh5-", sizeof(method)))
         return Decompressor::decode(data, compressed_size, uncompressed_size, 13); // 8K dict
+    if (!memcmp(method, "-lh6-", sizeof(method)))
+        return Decompressor::decode(data, compressed_size, uncompressed_size, 15); // 32K dict
+    if (!memcmp(method, "-lh7-", sizeof(method)))
+        return Decompressor::decode(data, compressed_size, uncompressed_size, 16); // 64K dict
 
     throw std::runtime_error { std::format("Unsupported compression method {:5.5s}", (const char*)method) };
 }
@@ -665,26 +698,37 @@ std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeade
     return res;
 }
 
+void test_file(const std::string& filename)
+{
+    auto data = read_file(filename);
+    LhaFile lha { data.data(), data.size() };
+    for (LhaHeader hdr; lha.next(hdr);) {
+        // Note: The filename can be NUL-terminated and contain version info afterwards
+        std::println("{:5.5s} {:6d} {:6d} {}{}", (const char*)hdr.compression_method, hdr.compressed_size, hdr.original_size, hdr.dirname, hdr.filename);
+        if (!memcmp(hdr.compression_method, "-lhd-", 5))
+            continue;
+        (void)decompress(data, hdr);
+    }
+}
+
 int main()
 {
     try {
-        const char* filename = R"(c:\Users\micha\Downloads\DylanDog_Complete_WHD.lha)"; // lh0/lh5
-        //const char* filename = R"(c:\Users\micha\Downloads\WHDLoad_dev.lha)";// lh0/lh5
-        //const char* filename = R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\Kefrens-AnkhInPopland.lha)";
-        //const char* filename = R"(c:\Users\micha\Downloads\tg93mods.lha)"; // Header level 0
-        //const char* filename = R"(c:\Users\micha\Downloads\3dstars.lha)"; // Header level 0 with directory
-        //const char* filename = R"(explode.lha)";
-        auto data = read_file(filename);
-        LhaFile lha { data.data(), data.size() };
-        for (LhaHeader hdr; lha.next(hdr);) {
-            // Note: The filename can be NUL-terminated and contain version info afterwards
-            std::println("{:5.5s} {:6d} {:6d} {}", (const char*)hdr.compression_method, hdr.compressed_size, hdr.original_size, hdr.filename);
-            (void)decompress(data, hdr);
-        }
+        const char* const tests[] = {
+            R"(c:\Users\micha\Downloads\DylanDog_Complete_WHD.lha)", // lh0/lh5
+            R"(c:\Users\micha\Downloads\WHDLoad_dev.lha)",// lh0/lh5
+            R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\Kefrens-AnkhInPopland.lha)",
+            R"(c:\Users\micha\Downloads\tg93mods.lha)", // Header level 0
+            R"(c:\Users\micha\Downloads\3dstars.lha)", // Header level 0 with directory
+            R"(explode.lha)",
+            R"(spaces.lha)",
+            R"(c:\Users\micha\Downloads\SDK_54.16.lha)", // lh0/lh6
+            R"(c:\Users\micha\Downloads\elk-knarkzilla.lha)", // Empty table in c_len     
+            R"(c:\Users\micha\Downloads\gcc68.lha)", // lhz7/header level 2, match position > outpos -- TODO
+        };
 
-        //auto f = read_file(R"(c:\Temp\whdload_test\Kefrens-AnkhInPopland\source\Install\AnkhInPopland Install\source\explode.s)");
-        //std::println("\nCRC: 0x{:4X}", crc16(f.data(), f.size()));
-        //std::println("");
+        for (const auto& fn : tests)
+            test_file(fn);
 
     } catch (const std::exception& e) {
         std::println("{}", e.what());
