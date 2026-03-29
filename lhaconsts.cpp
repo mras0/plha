@@ -3,12 +3,12 @@
 #include <stdexcept>
 #include <format>
 
-const uint8_t lha_method_names[LHA_METHOD_UNKNOWN][5] = {
-    { '-', 'l', 'h', 'd', '-' },
-    { '-', 'l', 'h', '0', '-' },
-    { '-', 'l', 'h', '5', '-' },
-    { '-', 'l', 'h', '6', '-' },
-    { '-', 'l', 'h', '7', '-' },
+const uint8_t lha_method_names[LHA_METHOD_UNKNOWN][6] = {
+    { '-', 'l', 'h', 'd', '-', 0 },
+    { '-', 'l', 'h', '0', '-', 0 },
+    { '-', 'l', 'h', '5', '-', 0 },
+    { '-', 'l', 'h', '6', '-', 0 },
+    { '-', 'l', 'h', '7', '-', 0 },
 };
 
 LhaMethod lha_method_from_id(const uint8_t (&method)[5])

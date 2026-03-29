@@ -2,7 +2,9 @@
 #include "lhaconsts.h"
 #include <cassert>
 #include <algorithm>
+#include <cstring>
 
+#if 0
 class MatchFinder {
 public:
     explicit MatchFinder(const uint8_t* data, size_t size, uint16_t window_bits)
@@ -145,6 +147,136 @@ std::vector<LzNode> lz_build_fast(const uint8_t* data, uint32_t size, uint16_t w
 
     return res;
 }
+
+#else
+// Heavily inspired by MatchFinder in shrinkler
+class MatchFinder {
+    uint32_t len_;
+    std::vector<uint32_t> pos_; // sorted suffix array
+    std::vector<uint32_t> rev_; // inverse mapping (from string position to index in "pos")
+    std::vector<uint32_t> lcp_; // longest common prefix array
+
+    uint32_t left_idx_ = 0, left_len_ = 0;
+    uint32_t right_idx_ = 0, right_len_ = 0;
+    uint32_t cur_pos_ = 0;
+    const uint32_t max_offset;
+public:
+
+    MatchFinder(const uint8_t* src, uint32_t len, uint16_t window_bits)
+        : len_ { len }
+        , pos_(len)
+        , rev_(len)
+        , lcp_(len)
+        , max_offset { 1U << window_bits }
+    {
+        for (uint32_t i = 0; i < len; ++i)
+            pos_[i] = i;
+        std::sort(pos_.begin(), pos_.end(), [&](uint32_t l, uint32_t r) {
+            const auto res = std::memcmp(src + l, src + r, len - std::max(l, r));
+            if (res < 0)
+                return true;
+            return res == 0 && l > r;
+        });
+        for (uint32_t i = 0; i < len; ++i)
+            rev_[pos_[i]] = i;
+
+        // Construct LCP array using Kasai's method
+        uint32_t l = 0;
+        for (uint32_t i = 0; i < len; ++i) {
+            uint32_t r = rev_[i];
+            if (r + 1 == len)
+                continue;
+            uint32_t j = pos_[r + 1];
+            uint32_t m = len - std::max(i, j);
+            // l - 1 characters match (invariant)
+            while (l < m && src[i + l] == src[j + l])
+                ++l;
+            lcp_[r] = l;
+            if (l)
+                --l; // Delete character from the beginning of the string
+        }
+    }
+
+    void start(uint32_t p)
+    {
+        cur_pos_ = p;
+        left_idx_ = right_idx_ = rev_[p];
+        left_len_ = right_len_ = len_ - p;
+        move_left();
+        move_right();
+    }
+
+    void move_left()
+    {
+        while (left_len_ >= min_match_len) {
+            if (!left_idx_) {
+                left_len_ = 0;
+                return;
+            }
+            left_len_ = std::min(left_len_, lcp_[--left_idx_]);
+            if (left_len_ < min_match_len)
+                return;
+            uint32_t p = pos_[left_idx_];
+            if (p < cur_pos_)
+                return;
+        }
+    }
+
+    void move_right()
+    {
+        for (;;) {
+            right_len_ = std::min(right_len_, lcp_[right_idx_]);
+            if (right_len_ < min_match_len)
+                return;
+            if (right_idx_ + 1 == len_) {
+                right_len_ = 0;
+                return;
+            }
+            uint32_t p = pos_[++right_idx_];
+            if (p < cur_pos_)
+                return;
+        }
+    }
+
+    bool next_match(uint32_t& match_pos, uint32_t& match_len)
+    {
+        if (left_len_ > right_len_ || (left_len_ == right_len_ && pos_[left_idx_] > pos_[right_idx_])) {
+            if (left_len_ < min_match_len)
+                return false;
+            match_len = left_len_;
+            match_pos = pos_[left_idx_];
+            move_left();
+        } else {
+            if (right_len_ < min_match_len)
+                return false;
+            match_len = right_len_;
+            match_pos = pos_[right_idx_];
+            move_right();
+        }
+        return true;
+    }
+
+    uint32_t matches(uint32_t start_pos, uint32_t* mpos, uint32_t* mlen, uint32_t max_matches)
+    {
+        uint32_t nmatches;
+        start(start_pos);
+        for (nmatches = 0; nmatches < max_matches;) {
+            if (!next_match(*mpos, *mlen))
+                break;
+            if (start_pos - *mpos > max_offset)
+                continue;
+            if (*mlen > max_match_len)
+                *mlen = max_match_len;
+            ++mlen;
+            ++mpos;
+            ++nmatches;
+        }
+        return nmatches;
+    }
+
+    void add(uint32_t) {}
+};
+#endif
 
 static constexpr uint32_t p_cost = 4;
 static constexpr uint32_t sym_cost = 9;

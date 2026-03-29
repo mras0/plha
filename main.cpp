@@ -179,6 +179,20 @@ cheaper cost for 00/FF
 ../test_comp/simple.txt            20     96 20.83%
 ../test_comp/sprite_intro        3339  14984 22.28%
 ../test_comp/Zombies.SHP        57127 245720 23.25%
+
+New MatchFinder (max match 64)
+../test_comp/80croc.def         20722 170782 12.13% -lh5-
+../test_comp/BLOX1.DAT          41545 112384 36.97% -lh5-
+../test_comp/data.adpcm        518493 570307 90.91% -lh5-
+../test_comp/Green Eggs and Ham.txt    716   3475 20.60% -lh5-
+../test_comp/jp2_000           126487 267264 47.33% -lh5-
+../test_comp/jp2_001            17031  34468 49.41% -lh5-
+../test_comp/jp2_002            21288  51100 41.66% -lh5-
+../test_comp/MAIN.BIN           69713 118784 58.69% -lh5-
+../test_comp/simple.txt            21     96 21.88% -lh5-
+../test_comp/sprite_intro        3327  14984 22.20% -lh5-
+../test_comp/Zombies.SHP        56020 245720 22.80% -lh5-
+../test_comp/Green Eggs and Ham.txt    716   3475 20.60% -lh7-
 */
 
 int main()
