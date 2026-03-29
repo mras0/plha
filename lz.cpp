@@ -1,6 +1,7 @@
 #include "lz.h"
 #include "lhaconsts.h"
 #include <cassert>
+#include <algorithm>
 
 class MatchFinder {
 public:
@@ -23,11 +24,11 @@ public:
 
     bool longest_match(uint32_t pos, uint32_t& mpos, uint32_t& mlen)
     {
-        int next = table_[hash_from_pos(pos)];
-        const int min_pos = (int)(pos - window_size);
-
         if (data_ + pos + min_match_len > end_)
             return false;
+
+        int next = table_[hash_from_pos(pos)];
+        const int min_pos = (int)(pos - window_size);
 
         const int max_search = 64;
         mlen = 0;
@@ -42,6 +43,28 @@ public:
             next = chain_[next & window_mask];
         }
         return mlen >= min_match_len;
+    }
+
+    uint32_t matches(uint32_t pos, uint32_t* mpos, uint32_t* mlen, uint32_t max_matches)
+    {
+        if (data_ + pos + min_match_len > end_)
+            return 0;
+
+        int next = table_[hash_from_pos(pos)];
+        const int min_pos = (int)(pos - window_size);
+
+        uint32_t nmatches;
+        for (nmatches = 0; nmatches < max_matches && next > min_pos;) {
+            const uint32_t len = match_len(pos, next);
+            if (len >= min_match_len) {
+                *mlen++ = len;
+                *mpos++ = next;
+                ++nmatches;
+            }
+            next = chain_[next & window_mask];
+        }
+
+        return nmatches;
     }
 
 private:
@@ -75,7 +98,7 @@ private:
     }
 };
 
-std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window_bits)
+std::vector<LzNode> lz_build_fast(const uint8_t* data, uint32_t size, uint16_t window_bits)
 {
     if (!size)
         return {};
@@ -123,3 +146,79 @@ std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window
     return res;
 }
 
+static constexpr uint32_t p_cost = 4;
+static constexpr uint32_t sym_cost = 9;
+
+static inline uint32_t lit_cost(uint8_t ch)
+{
+    if (ch == 0x00 || ch == 0xFF)
+        return sym_cost - 2;
+    return sym_cost;
+}
+
+static inline uint32_t offset_cost(uint32_t pos, uint32_t match_pos)
+{
+    return p_len(pos - match_pos - 1) + p_cost;
+}
+
+std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window_bits)
+{
+    if (!size)
+        return {};
+
+    MatchFinder mf { data, size, window_bits };
+
+    struct CostNode {
+        uint16_t code = 0;
+        uint32_t mpos = 0;
+        uint64_t cost = UINT64_MAX;
+    };
+    std::vector<CostNode> cn(size + 1);
+    cn[0].cost = 0;
+
+    for (uint32_t pos = 0; pos < size; ++pos) {
+        if (auto lc = cn[pos].cost + lit_cost(data[pos]); lc < cn[pos + 1].cost) {
+            cn[pos + 1].cost = lc;
+            cn[pos + 1].code = data[pos];
+        }
+
+        static constexpr uint32_t max_matches = 64;
+        uint32_t mpos[max_matches], mlen[max_matches];
+        uint32_t nmatches = mf.matches(pos, mpos, mlen, max_matches);
+
+        for (uint32_t i = 0; i < nmatches; ++i) {
+            const auto match_cost = cn[pos].cost + sym_cost + offset_cost(pos, mpos[i]);
+            for (uint32_t j = min_match_len; j <= mlen[i]; ++j) {
+                auto& n = cn[pos + j];
+                if (match_cost < n.cost) {
+                    n.cost = match_cost;
+                    n.code = (uint16_t)(256 + j - min_match_len);
+                    n.mpos = mpos[i];
+                }
+            }
+        }
+
+        mf.add(pos);
+    }
+
+    std::vector<LzNode> res;
+
+    for (uint32_t pos = size; pos;) {
+        const auto& n = cn[pos];
+        LzNode lz {};
+        lz.code = n.code;
+        if (n.code < 256) {
+            --pos;
+        } else {
+            const auto len = n.code - 256 + min_match_len;
+            assert(pos >= len);
+            pos -= len;
+            lz.ofs = uint16_t(pos - n.mpos - 1);
+        }
+        res.push_back(lz);
+    }
+
+    std::reverse(res.begin(), res.end());
+
+    return res;
+}

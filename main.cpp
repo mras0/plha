@@ -34,7 +34,20 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
     if (!std::memcmp(data, out.data(), size))
         return;
 
-    std::println("Decompressed failed!");
+    std::println("LZ Decompression failed!");
+
+    for (size_t i = 0; i < size; ++i) {
+        if (out[i] == data[i])
+            continue;
+        std::println("First difference at {}", i);
+        const auto sz = std::min(size_t(16), size - i);
+        std::println("Expected:");
+        hexdump(data + i, sz);
+        std::println("Got:");
+        hexdump(&out[i], sz);
+        break;
+    }
+
     exit(1);
 }
 
@@ -129,6 +142,45 @@ Lookahead 1:
 ../test_comp/simple.txt            20     96 20.83%
 ../test_comp/sprite_intro        3386  14984 22.60%
 ../test_comp/Zombies.SHP        59285 245720 24.13%
+
+"Optimal" max match=16
+../test_comp/80croc.def         22595 170782 13.23%
+../test_comp/BLOX1.DAT          42098 112384 37.46%
+../test_comp/data.adpcm        518506 570307 90.92%
+../test_comp/Green Eggs and Ham.txt    721   3475 20.75%
+../test_comp/jp2_000           127210 267264 47.60%
+../test_comp/jp2_001            17197  34468 49.89%
+../test_comp/jp2_002            21530  51100 42.13%
+../test_comp/MAIN.BIN           69852 118784 58.81%
+../test_comp/simple.txt            20     96 20.83%
+../test_comp/sprite_intro        3353  14984 22.38%
+../test_comp/Zombies.SHP        57469 245720 23.39%
+
+max match=64
+../test_comp/80croc.def         21783 170782 12.75%
+../test_comp/BLOX1.DAT          41933 112384 37.31%
+../test_comp/data.adpcm        518506 570307 90.92%
+../test_comp/Green Eggs and Ham.txt    716   3475 20.60%
+../test_comp/jp2_000           126842 267264 47.46%
+../test_comp/jp2_001            17158  34468 49.78%
+../test_comp/jp2_002            21461  51100 42.00%
+../test_comp/MAIN.BIN           69728 118784 58.70%
+../test_comp/simple.txt            20     96 20.83%
+../test_comp/sprite_intro        3344  14984 22.32%
+../test_comp/Zombies.SHP        57252 245720 23.30%
+
+cheaper cost for 00/FF
+../test_comp/80croc.def         21770 170782 12.75%
+../test_comp/BLOX1.DAT          41641 112384 37.05%
+../test_comp/data.adpcm        518493 570307 90.91%
+../test_comp/Green Eggs and Ham.txt    716   3475 20.60%
+../test_comp/jp2_000           126670 267264 47.40%
+../test_comp/jp2_001            17038  34468 49.43%
+../test_comp/jp2_002            21298  51100 41.68%
+../test_comp/MAIN.BIN           69737 118784 58.71%
+../test_comp/simple.txt            20     96 20.83%
+../test_comp/sprite_intro        3339  14984 22.28%
+../test_comp/Zombies.SHP        57127 245720 23.25%
 */
 
 int main()
