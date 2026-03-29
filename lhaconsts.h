@@ -5,6 +5,7 @@
 
 static constexpr uint32_t max_match_len = 256;
 static constexpr uint32_t min_match_len = 3;
+static constexpr uint32_t max_code_bits = 16;
 static constexpr uint32_t NT = 16 + 3; // USHRT_BIT + 3
 static constexpr uint32_t NC = 255 + max_match_len + 2 - min_match_len;
 static constexpr uint32_t TBIT = 5;

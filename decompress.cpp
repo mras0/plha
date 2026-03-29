@@ -67,7 +67,7 @@ public:
                     len = ibs.get(4) + 3;
                 else
                     len = ibs.get(CBIT) + 20;
-                if (i + len > table_.size())
+                if (i + len > num_syms_)
                     throw std::runtime_error { "Invalid table in c_len" };
                 while (len--)
                     code_len_[i++] = 0;
@@ -122,18 +122,17 @@ private:
 
 void HuffTable::make_table()
 {
-    static constexpr uint32_t max_sym_bits = 16;
     static constexpr bool debug = false;
 
-    uint16_t count[max_sym_bits + 1] = { 0 };
-    uint16_t weight[max_sym_bits + 1];
-    uint16_t start[max_sym_bits + 1];
+    uint16_t count[max_code_bits + 1] = { 0 };
+    uint16_t weight[max_code_bits + 1];
+    uint16_t start[max_code_bits + 1];
     
-    for (uint32_t i = 1; i <= max_sym_bits; ++i)
-        weight[i] = 1 << (max_sym_bits - i);
+    for (uint32_t i = 1; i <= max_code_bits; ++i)
+        weight[i] = 1 << (max_code_bits - i);
 
     for (uint32_t i = 0; i < num_syms_; ++i) {
-        if (code_len_[i] > max_sym_bits)
+        if (code_len_[i] > max_code_bits)
             throw std::runtime_error { std::format("Invalid code length {} in make_table", code_len_[i]) };
         if constexpr (debug)
             std::println("{:03X} {}", i, code_len_[i]);
@@ -141,7 +140,7 @@ void HuffTable::make_table()
     }
 
     uint32_t total = 0;
-    for (uint32_t i = 1; i <= max_sym_bits; ++i) {
+    for (uint32_t i = 1; i <= max_code_bits; ++i) {
         start[i] = (uint16_t)total;
         total += weight[i] * count[i];
         if constexpr (debug)
@@ -318,10 +317,10 @@ std::vector<uint8_t> Decompressor::do_decode()
 
         if (outpos + len > out_.size())
             throw std::runtime_error { "Match is too long!" };
-        while (pos > outpos) {
+        while (pos > outpos && len) {
             // The dictionary is initially filled with spaces...
             out_[outpos++] = ' ';
-            --len;
+            len--;
         }
         for (; len--; ++outpos)
             out_[outpos] = out_[outpos - pos];

@@ -6,10 +6,21 @@
 #include "util.h"
 #include "lhaconsts.h"
 #include "obs.h"
+#include "huffcode.h"
 
 static constexpr uint16_t window_bits = 13; // LH5
 static constexpr uint32_t window_size = 1U << window_bits;
 static constexpr uint32_t window_mask = window_size - 1;
+
+static uint16_t p_len(uint32_t n)
+{
+    uint16_t l = 0;
+    while (n) {
+        l++;
+        n >>= 1;
+    }
+    return l;
+}
 
 struct LzNode {
     uint16_t code;
@@ -140,12 +151,236 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
     exit(1);
 }
 
+void print_table(const std::vector<uint32_t>& code_len_)
+{
+    static constexpr bool debug = false;
+    const uint32_t num_syms_ = (uint32_t)code_len_.size();
 
+    uint16_t count[max_code_bits + 1] = { 0 };
+    uint16_t weight[max_code_bits + 1];
+    uint16_t start[max_code_bits + 1];
+
+    for (uint32_t i = 1; i <= max_code_bits; ++i)
+        weight[i] = 1 << (max_code_bits - i);
+
+    for (uint32_t i = 0; i < num_syms_; ++i) {
+        if (code_len_[i] > max_code_bits)
+            throw std::runtime_error { std::format("Invalid code length {} in make_table", code_len_[i]) };
+        if constexpr (debug)
+            std::println("{:03X} {}", i, code_len_[i]);
+        count[code_len_[i]]++;
+    }
+
+    uint32_t total = 0;
+    for (uint32_t i = 1; i <= max_code_bits; ++i) {
+        start[i] = (uint16_t)total;
+        total += weight[i] * count[i];
+        if constexpr (debug)
+            std::println("{:2d} start={:04X} weight={:04X} count={} total={:04X}", i, start[i], weight[i], count[i], total);
+    }
+    if (total & 0xffff)
+        throw std::runtime_error { std::format("Invalid total {:X} in make_table", total) };
+
+    for (uint32_t sym = 0; sym < num_syms_; ++sym) {
+        const uint32_t clen = code_len_[sym];
+        if (!clen)
+            continue;
+        std::println("{:03x} {:0{}b}", sym, start[clen] >> (16 - clen), clen);
+        start[clen] += weight[clen];
+    }
+}
+
+class HuffCoder {
+public:
+    explicit HuffCoder(const std::vector<uint32_t>& freq)
+        : num_sym_ { effective_table_length(freq) }
+    {
+        clen_ = codelen_packing_merge(freq, max_code_bits);
+        code_ = assign_codes(clen_);
+    }
+
+    void encode(OutputBitString& obs, uint16_t sym) const
+    {
+        assert(sym < num_sym_);
+        obs.put(code_[sym], clen_[sym]);
+    }
+
+    void print_codes() const
+    {
+        for (uint32_t i = 0; i < num_sym_; ++i)
+            if (clen_[i])
+                std::println("{:03X} {:0{}b}", i, code_[i], clen_[i]);
+    }
+
+    void encode_table_c(OutputBitString& obs)
+    {
+        // Syms:
+        // 0 => 1 zero
+        // 1 => 3 + 4 bits zeros (3..18)
+        // 2 => 20 + CBIT (9) bits zeros (20..)
+        // 3 => length 1
+        // 4 => length 2
+        // ...
+
+
+        // TODO: Special case is possible if all codes have the same length
+        if (!num_sym_)
+            throw std::runtime_error { "TODO: Empty c-table?!" };
+
+        std::vector<uint32_t> t_freq(NT);
+        uint32_t zero_run = 0;
+        std::vector<uint32_t> t_syms;
+        std::vector<uint32_t> t_extra;
+
+        for (uint32_t i = 0; i < num_sym_; ++i) {
+            auto put_sym = [&](uint8_t sym, uint32_t extra = 0) {
+                t_freq[sym]++;
+                t_syms.push_back(sym);
+                t_extra.push_back(extra);
+            };
+
+            if (clen_[i]) {
+                if (zero_run) {
+                    // TODO: Maybe cut-off points could be improved
+                    if (zero_run >= 20) {
+                        put_sym(2, zero_run - 20);
+                    } else if (zero_run == 19) {
+                        put_sym(1, 15);
+                        put_sym(0);
+                    } else if (zero_run >= 3) {
+                        put_sym(1, zero_run - 3);
+                    } else {
+                        while (zero_run--)
+                            put_sym(0);
+                    }
+                    zero_run = 0;
+                }
+                put_sym((uint8_t)(clen_[i] + 2));
+            } else {
+                ++zero_run;
+            }
+        }
+        assert(zero_run == 0);
+
+        HuffCoder t_coder { t_freq };
+        encode_t_lens(obs, t_coder.clen_, t_coder.num_sym_);
+
+        obs.put(num_sym_, CBIT);
+        for (size_t i = 0; i < t_syms.size(); ++i) {
+            const auto sym = t_syms[i];
+            t_coder.encode(obs, (uint16_t)sym);
+            if (sym == 1)
+                obs.put(t_extra[i], 4);
+            else if (sym == 2)
+                obs.put(t_extra[i], CBIT);
+        }
+    }
+
+    void encode_table_p(OutputBitString& obs)
+    {
+        assert(num_sym_ <= NT);
+        obs.put(num_sym_, window_bits < 14 ? 4 : 5);
+        for (uint32_t i = 0; i < num_sym_; ++i)
+            encode_pt_len(obs, clen_[i]);
+    }
+
+private:
+    const uint32_t num_sym_;
+    std::vector<uint32_t> clen_;
+    std::vector<uint32_t> code_;
+
+    static void encode_t_lens(OutputBitString& obs, const std::vector<uint32_t>& clen, uint32_t num_sym)
+    {
+        assert(num_sym <= NT);
+        obs.put(num_sym, TBIT);
+        for (uint32_t i = 0; i < num_sym && i < 3U; ++i)
+            encode_pt_len(obs, clen[i]);
+        uint32_t nz = 0;
+        for (uint32_t i = 3; i < num_sym && i < 6 && clen[i] == 0; ++i)
+            ++nz;
+        obs.put(nz, 2);
+        for (uint32_t i = 3 + nz; i < num_sym; ++i)
+            encode_pt_len(obs, clen[i]);
+    }
+
+    static void encode_pt_len(OutputBitString& obs, uint32_t len)
+    {
+        if (len < 7) {
+            obs.put(len, 3);
+            return;
+        }
+        obs.put(7, 3);
+        len -= 7;
+        while (len--)
+            obs.put(1, 1);
+        obs.put(0, 1);
+    }
+
+    static uint32_t effective_table_length(const std::vector<uint32_t>& tab)
+    {
+        uint32_t l;
+        for (l = (uint32_t)tab.size(); l-- && !tab[l];)
+            ;
+        return l + 1;
+    }
+};
+
+void encode_block(OutputBitString& obs, const LzNode* lz, uint16_t size)
+{
+    assert(size);
+    std::vector<uint32_t> c_freq(NC);
+    std::vector<uint32_t> p_freq(NT);
+
+    for (uint32_t i = 0; i < size; ++i) {
+        const auto& n = lz[i];
+        c_freq[n.code]++;
+        if (n.code >= 256)
+            p_freq[p_len(n.ofs)]++;
+    }
+
+    HuffCoder ccoder { c_freq };
+    HuffCoder pcoder { p_freq };
+
+    obs.put(size, 16);
+    ccoder.encode_table_c(obs);
+    pcoder.encode_table_p(obs);
+
+    while (size--) {
+        const auto& n = *lz++;
+        ccoder.encode(obs, n.code);
+        if (n.code >= 256) {
+            const auto pl = p_len(n.ofs);
+            pcoder.encode(obs, pl);
+            if (pl)
+                obs.put(n.ofs & ~(1 << (pl - 1)), pl - 1);
+        }
+    }
+}
+
+std::vector<uint8_t> encode_lh5(const std::vector<LzNode>& lz)
+{
+    OutputBitString obs;
+    // TODO: Maybe it's worth doing smaller blocks once frequency of codes changes "enough"
+    for (size_t pos = 0; pos < lz.size();) {
+        const auto here = std::min(size_t(65535), lz.size() - pos);
+        encode_block(obs, &lz[pos], (uint16_t)here);
+        pos += here;
+    }
+    return obs.finish();
+}
+
+#include "decompress.h"
 void test_file(const std::string& filename)
 {
     auto data = read_file(filename);
-    const auto res = build_lz(data.data(), (uint32_t)data.size());
-    test_lz(data.data(), (uint32_t)data.size(), res);
+    const auto lz = build_lz(data.data(), (uint32_t)data.size());
+    test_lz(data.data(), (uint32_t)data.size(), lz);
+    const auto encoded = encode_lh5(lz);
+    const auto decoded = decompress(encoded.data(), (uint32_t)encoded.size(), (uint32_t)data.size(), LHA_METHOD_LH5);
+
+    if (decoded != data)
+        throw std::runtime_error { std::format("Wrong data decoded for {}", filename) };
+
 }
 
 #include <filesystem>
