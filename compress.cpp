@@ -37,9 +37,10 @@ static void encode_block(OutputBitString& obs, const LzNode* lz, uint16_t size, 
     }
 }
 
-std::vector<uint8_t> encode_lh(const std::vector<LzNode>& lz, uint16_t window_bits)
+std::vector<uint8_t> encode_lh(const std::vector<LzNode>& lz, LhaMethod method)
 {
     OutputBitString obs;
+    uint16_t window_bits = window_bits_for_method(method);
     // TODO: Maybe it's worth doing smaller blocks once frequency of codes changes "enough"
     for (size_t pos = 0; pos < lz.size();) {
         const auto here = std::min(size_t(65535), lz.size() - pos);

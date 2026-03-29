@@ -10,8 +10,6 @@
 #include "lz.h"
 #include "compress.h"
 
-static constexpr uint16_t window_bits = 13; // LH5
-
 void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
 {
     std::vector<uint8_t> out;
@@ -52,27 +50,27 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
 }
 
 #include "decompress.h"
-void test_file(const std::string& filename)
+void test_file(const std::string& filename, LhaMethod method)
 {
     auto data = read_file(filename);
-    const auto lz = lz_build(data.data(), (uint32_t)data.size(), window_bits);
+    const auto lz = lz_build(data.data(), (uint32_t)data.size(), window_bits_for_method(method));
     test_lz(data.data(), (uint32_t)data.size(), lz);
-    const auto encoded = encode_lh(lz, window_bits);
-    const auto decoded = decompress(encoded.data(), (uint32_t)encoded.size(), (uint32_t)data.size(), LHA_METHOD_LH5);
+    const auto encoded = encode_lh(lz, method);
+    const auto decoded = decompress(encoded.data(), (uint32_t)encoded.size(), (uint32_t)data.size(), method);
 
     if (decoded != data)
         throw std::runtime_error { std::format("Wrong data decoded for {}", filename) };
 
-    std::println("{:30s} {:6d} {:6d} {:.2f}%", filename, encoded.size(), decoded.size(), 100.*encoded.size() / decoded.size());
+    std::println("{:30s} {:6d} {:6d} {:.2f}% {:5.5s}", filename, encoded.size(), decoded.size(), 100. * encoded.size() / decoded.size(), (const char*)lha_method_names[method]);
 
 }
 
 #include <filesystem>
-void test_dir(const std::string& dir_path)
+void test_dir(const std::string& dir_path, LhaMethod method)
 {
     namespace fs = std::filesystem;
     for (const auto& e : fs::recursive_directory_iterator { dir_path })
-        test_file(e.path().string());
+        test_file(e.path().string(), method);
 }
 
 
@@ -188,8 +186,8 @@ int main()
     try {
         test_obs();
         const std::string dir = "../test_comp/";
-        //test_file(dir + "Green Eggs and Ham.txt");
-        test_dir(dir);
+        test_dir(dir, LHA_METHOD_LH5);
+        test_file(dir + "Green Eggs and Ham.txt", LHA_METHOD_LH7);
     } catch (const std::exception& e) {
         std::println("{}", e.what());
         return 1;

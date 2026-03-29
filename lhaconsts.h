@@ -24,9 +24,10 @@ enum LhaMethod {
     LHA_METHOD_UNKNOWN
 };
 
-extern const uint8_t method_names[LHA_METHOD_UNKNOWN][5];
+extern const uint8_t lha_method_names[LHA_METHOD_UNKNOWN][5];
 
 LhaMethod lha_method_from_id(const uint8_t (&method)[5]);
+uint16_t window_bits_for_method(LhaMethod method);
 
 static inline uint16_t p_len(uint32_t num)
 {

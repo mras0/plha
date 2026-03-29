@@ -1,7 +1,9 @@
 #include "lhaconsts.h"
 #include <cstring>
+#include <stdexcept>
+#include <format>
 
-const uint8_t method_names[LHA_METHOD_UNKNOWN][5] = {
+const uint8_t lha_method_names[LHA_METHOD_UNKNOWN][5] = {
     { '-', 'l', 'h', 'd', '-' },
     { '-', 'l', 'h', '0', '-' },
     { '-', 'l', 'h', '5', '-' },
@@ -12,7 +14,21 @@ const uint8_t method_names[LHA_METHOD_UNKNOWN][5] = {
 LhaMethod lha_method_from_id(const uint8_t (&method)[5])
 {
     for (int i = 0; i < LHA_METHOD_UNKNOWN; ++i)
-        if (!std::memcmp(method, method_names[i], 5))
+        if (!std::memcmp(method, lha_method_names[i], 5))
             return (LhaMethod)i;
     return LHA_METHOD_UNKNOWN;
+}
+
+uint16_t window_bits_for_method(LhaMethod method)
+{
+    switch (method) {
+    case LHA_METHOD_LH5:
+        return 13;
+    case LHA_METHOD_LH6:
+        return 15;
+    case LHA_METHOD_LH7:
+        return 16;
+    default:
+        throw std::runtime_error { std::format("Invalid compression method {:5.5s}", (const char*)lha_method_names[method]) };
+    }
 }

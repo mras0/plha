@@ -332,24 +332,12 @@ std::vector<uint8_t> Decompressor::do_decode()
 
 std::vector<uint8_t> decompress(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, LhaMethod method)
 {
-    uint16_t dict_bits;
-    switch (method) {
-    case LHA_METHOD_LH0:
+    if (method == LHA_METHOD_LH0) {
         assert(uncompressed_size == compressed_size);
         return std::vector<uint8_t>(data, data + uncompressed_size);
-    case LHA_METHOD_LH5:
-        dict_bits = 13;
-        break;
-    case LHA_METHOD_LH6:
-        dict_bits = 15;
-        break;
-    case LHA_METHOD_LH7:
-        dict_bits = 16;
-        break;
-    default:
-        throw std::runtime_error { std::format("Unsupported compression method {}", (int)method) };
     }
-    return Decompressor::decode(data, compressed_size, uncompressed_size, dict_bits);
+
+    return Decompressor::decode(data, compressed_size, uncompressed_size, window_bits_for_method(method));
 }
 
 std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeader& hdr)

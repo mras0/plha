@@ -3,7 +3,8 @@
 
 #include <vector>
 #include <cstdint>
+#include "lhaconsts.h"
 
-std::vector<uint8_t> encode_lh(const std::vector<struct LzNode>& lz, uint16_t window_bits);
+std::vector<uint8_t> encode_lh(const std::vector<struct LzNode>& lz, LhaMethod method);
 
 #endif
