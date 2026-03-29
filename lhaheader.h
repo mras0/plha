@@ -12,11 +12,17 @@ struct LhaHeader {
     uint8_t compression_method[5];
     uint32_t compressed_size;
     uint32_t original_size;
-    uint32_t mod_time;
+    // In DOS date format
+    uint16_t mod_time;
+    uint16_t mod_date;
     std::string filename;
     std::string dirname;
     uint16_t crc;
     uint8_t os;
 };
+
+std::string lha_date_str(uint16_t t);
+std::string lha_time_str(uint16_t t);
+void lha_header_convert_unix_to_dos_time(LhaHeader& hdr);
 
 #endif

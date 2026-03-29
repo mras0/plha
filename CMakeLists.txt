@@ -27,7 +27,7 @@ add_library(plha_lib STATIC
     crc16.cpp crc16.h
     fileio.cpp fileio.h
     util.cpp util.h
-    lhaheader.h
+    lhaheader.cpp lhaheader.h
     lhafile.cpp lhafile.h
     lhaconsts.cpp lhaconsts.h
     ibs.cpp ibs.h
@@ -42,6 +42,11 @@ add_executable(test_decompress
     test_decompress.cpp
     )
 target_link_libraries(test_decompress plha_lib)
+
+add_executable(test_compress
+    test_compress.cpp
+    )
+target_link_libraries(test_compress plha_lib)
 
 add_executable(plha
     main.cpp

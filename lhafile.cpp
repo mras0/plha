@@ -23,7 +23,9 @@ bool LhaFileReader::next(LhaHeader& hdr)
     get_raw(hdr.compression_method, sizeof(hdr.compression_method));
     hdr.compressed_size = get_u32(); // skip size for level 1!
     hdr.original_size = get_u32();
-    hdr.mod_time = get_u32(); // Interpretation depends on version
+    // Interpretation depends on version
+    hdr.mod_time = get_u16();
+    hdr.mod_date = get_u16();
     skip(1); // Reserved (file attribute)
     skip(1); // Header level
     switch (hdr.level) {
@@ -39,6 +41,7 @@ bool LhaFileReader::next(LhaHeader& hdr)
         break;
     case 2:
         read_level2_header(hdr);
+        lha_header_convert_unix_to_dos_time(hdr);
         break;
     default:
         throw std::runtime_error { std::format("Header level {:d} not supported", hdr.level) };

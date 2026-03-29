@@ -345,6 +345,8 @@ std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeade
     const auto method = lha_method_from_id(hdr.compression_method);
     if (method == LHA_METHOD_UNKNOWN)
         throw std::runtime_error { std::format("Unsupported compression method {:5.5s}", (const char*)hdr.compression_method) };
+    if (method == LHA_METHOD_DIR)
+        return {};
 
     auto res = decompress(&data[hdr.compressed_offset], hdr.compressed_size, hdr.original_size, method);
     if (auto crc = crc16(res.data(), res.size()); crc != hdr.crc)
