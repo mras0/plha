@@ -26,6 +26,9 @@ public:
         int next = table_[hash_from_pos(pos)];
         const int min_pos = (int)(pos - window_size);
 
+        if (data_ + pos + min_match_len > end_)
+            return false;
+
         const int max_search = 64;
         mlen = 0;
         for (int nsearch = 0; nsearch < max_search && next > min_pos; ++nsearch) {
@@ -49,6 +52,8 @@ private:
 
     int hash_from_pos(uint32_t pos)
     {
+        if (data_ + pos + min_match_len > end_)
+            return 0;
         uint32_t h = data_[pos] | data_[pos + 1] << 8 | data_[pos + 2] << 16;
         // TODO better hash
         h = (h >> 16) ^ h;

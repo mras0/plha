@@ -2,6 +2,10 @@
 #define LHACONSTS_H
 
 #include <cstdint>
+#ifdef _MSC_VER
+#include <intrin.h>
+#pragma intrinsic(_BitScanReverse)
+#endif
 
 static constexpr uint32_t max_match_len = 256;
 static constexpr uint32_t min_match_len = 3;
@@ -24,14 +28,17 @@ extern const uint8_t method_names[LHA_METHOD_UNKNOWN][5];
 
 LhaMethod lha_method_from_id(const uint8_t (&method)[5]);
 
-static inline uint16_t p_len(uint32_t n)
+static inline uint16_t p_len(uint32_t num)
 {
-    uint16_t l = 0;
-    while (n) {
-        l++;
-        n >>= 1;
-    }
-    return l;
+    if (!num)
+        return 0;
+#ifdef _MSC_VER
+    unsigned long n;
+    _BitScanReverse(&n, num);
+    return (uint16_t)(n + 1);
+#else
+    return 32 - __builtin_clz(num);
+#endif
 }
 
 #endif

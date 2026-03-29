@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <vector>
 #include <cassert>
+#include <cstring>
 #include "fileio.h"
 #include "util.h"
 #include "lhaconsts.h"
@@ -30,7 +31,7 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
 
     if (out.size() != size)
         throw std::runtime_error { std::format("Decompression failed size: {} <> {}", out.size(), size) };
-    if (!memcmp(data, out.data(), size))
+    if (!std::memcmp(data, out.data(), size))
         return;
 
     std::println("Decompressed failed!");

@@ -58,7 +58,7 @@ static std::vector<uint32_t> codelen_packing_merge(const std::vector<uint32_t>& 
     // Phase 2
     std::vector<uint32_t> code_length(prob.size());
     for (uint32_t iter = 0, table_cnt = static_cast<uint32_t>(orig_nodes.size()) * 2 - 2; iter < max_len; ++iter) {
-        uint32_t symbol = 0, num_merged = 0;
+        uint32_t num_merged = 0;
         const auto& t = table[max_len - 1 - iter];
         for (size_t i = 0; i < table_cnt; ++i) {
             const auto& n = t[i];
@@ -66,7 +66,6 @@ static std::vector<uint32_t> codelen_packing_merge(const std::vector<uint32_t>& 
                 ++num_merged;
             } else {
                 code_length[n.sym]++;
-                ++symbol;
             }
         }
         table_cnt = 2 * num_merged;
