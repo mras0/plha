@@ -116,6 +116,19 @@ Max search 64:
 ../test_comp/simple.txt            20     96 20.83%
 ../test_comp/sprite_intro        3400  14984 22.69%
 ../test_comp/Zombies.SHP        61097 245720 24.86%
+
+Lookahead 1:
+../test_comp/80croc.def         23147 170782 13.55%
+../test_comp/BLOX1.DAT          42967 112384 38.23%
+../test_comp/data.adpcm        518506 570307 90.92%
+../test_comp/Green Eggs and Ham.txt    734   3475 21.12%
+../test_comp/jp2_000           128596 267264 48.12%
+../test_comp/jp2_001            17491  34468 50.75%
+../test_comp/jp2_002            21861  51100 42.78%
+../test_comp/MAIN.BIN           70663 118784 59.49%
+../test_comp/simple.txt            20     96 20.83%
+../test_comp/sprite_intro        3386  14984 22.60%
+../test_comp/Zombies.SHP        59285 245720 24.13%
 */
 
 int main()

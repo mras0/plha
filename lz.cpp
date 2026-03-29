@@ -36,6 +36,8 @@ public:
             if (len > mlen) {
                 mlen = len;
                 mpos = next;
+                if (mlen == max_match_len)
+                    break;
             }
             next = chain_[next & window_mask];
         }
@@ -102,9 +104,20 @@ std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window
             mf.add(pos++);
             continue;
         }
-        emit_match(mlen, uint16_t(pos - mpos - 1));
-        for (uint32_t i = 0; i < mlen; ++i)
-            mf.add(pos++);
+        
+        auto mofs = uint16_t(pos - mpos - 1); 
+        mf.add(pos);
+        if (uint32_t mpos2, mlen2; mf.longest_match(pos + 1, mpos2, mlen2) && mlen2 > mlen) {
+            emit_lit(data[pos++]);
+            mlen = mlen2;
+            mofs = uint16_t(pos - mpos2 - 1);
+            mf.add(pos);
+        }
+
+        emit_match(mlen, mofs);
+        for (uint32_t i = 1; i < mlen; ++i)
+            mf.add(pos + i);
+        pos += mlen;
     }
 
     return res;
