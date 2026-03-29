@@ -33,11 +33,16 @@ static std::vector<uint32_t> codelen_packing_merge(const std::vector<uint32_t>& 
     // Phase 1
 
     std::vector<std::vector<node>> table;
+    std::vector<uint32_t> code_length(prob.size());
 
     std::vector<node> orig_nodes;
     for (size_t i = 0; i < prob.size(); ++i)
         if (prob[i])
             orig_nodes.push_back({ static_cast<uint32_t>(i), prob[i], false });
+
+    if (orig_nodes.empty())
+        return code_length;
+
     std::sort(orig_nodes.begin(), orig_nodes.end());
     //pr(orig_nodes);
     table.push_back(orig_nodes);
@@ -56,7 +61,6 @@ static std::vector<uint32_t> codelen_packing_merge(const std::vector<uint32_t>& 
     }
 
     // Phase 2
-    std::vector<uint32_t> code_length(prob.size());
     for (uint32_t iter = 0, table_cnt = static_cast<uint32_t>(orig_nodes.size()) * 2 - 2; iter < max_len; ++iter) {
         uint32_t num_merged = 0;
         const auto& t = table[max_len - 1 - iter];
@@ -156,11 +160,15 @@ void HuffCoder::encode_table_c(OutputBitString& obs) const
     // ...
 
 
-    // TODO: Special case is possible if all codes have the same length (or there is only one symbol)
+    // Special case where for one symbol
     assert(num_sym_);
     if (!clen_[num_sym_ - 1]) {
         assert(std::all_of(clen_.begin(), clen_.end(), [](uint32_t len) { return len == 0; }));
-        throw std::runtime_error { "TODO: Special case for only one char" };
+        obs.put(0, TBIT);
+        obs.put(0, TBIT);
+        obs.put(0, CBIT);
+        obs.put(num_sym_ - 1, CBIT);
+        return;
     }
 
     std::vector<uint32_t> t_freq(NT);
@@ -214,12 +222,15 @@ void HuffCoder::encode_table_c(OutputBitString& obs) const
 
 void HuffCoder::encode_table_p(OutputBitString& obs, uint32_t window_bits) const
 {
-    assert(num_sym_);
     assert(num_sym_ <= NT);
     const auto tbits = window_bits < 14 ? 4 : 5;
 
-    // Special case: Only one symbol
-    if (!clen_[num_sym_ - 1]) {
+    // Special cases: Zero or one symbol
+    if (!num_sym_) {
+        obs.put(0, tbits);
+        obs.put(0, tbits);
+        return;
+    } else if (!clen_[num_sym_ - 1]) {
         assert(std::all_of(clen_.begin(), clen_.end(), [](uint32_t len) { return len == 0; }));
         obs.put(0, tbits);
         obs.put(num_sym_ - 1, tbits);

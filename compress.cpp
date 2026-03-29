@@ -37,7 +37,7 @@ static void encode_block(OutputBitString& obs, const LzNode* lz, uint16_t size, 
     }
 }
 
-std::vector<uint8_t> encode_lh(const std::vector<LzNode>& lz, LhaMethod method)
+std::vector<uint8_t> compress(const std::vector<LzNode>& lz, LhaMethod method)
 {
     OutputBitString obs;
     uint16_t window_bits = window_bits_for_method(method);
@@ -50,7 +50,7 @@ std::vector<uint8_t> encode_lh(const std::vector<LzNode>& lz, LhaMethod method)
     return obs.finish();
 }
 
-std::vector<uint8_t> encode_lh(const uint8_t* data, uint32_t size, LhaMethod method)
+std::vector<uint8_t> compress(const uint8_t* data, uint32_t size, LhaMethod method)
 {
-    return encode_lh(lz_build(data, size, window_bits_for_method(method)), method);
+    return compress(lz_build(data, size, window_bits_for_method(method)), method);
 }

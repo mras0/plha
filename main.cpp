@@ -50,19 +50,23 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
 }
 
 #include "decompress.h"
-void test_file(const std::string& filename, LhaMethod method)
+
+void test_file(const std::string& filename, const std::vector<uint8_t>& data, LhaMethod method)
 {
-    auto data = read_file(filename);
     const auto lz = lz_build(data.data(), (uint32_t)data.size(), window_bits_for_method(method));
     test_lz(data.data(), (uint32_t)data.size(), lz);
-    const auto encoded = encode_lh(lz, method);
+    const auto encoded = compress(lz, method);
     const auto decoded = decompress(encoded.data(), (uint32_t)encoded.size(), (uint32_t)data.size(), method);
 
     if (decoded != data)
         throw std::runtime_error { std::format("Wrong data decoded for {}", filename) };
 
     std::println("{:30s} {:6d} {:6d} {:.2f}% {:5.5s}", filename, encoded.size(), decoded.size(), 100. * encoded.size() / decoded.size(), (const char*)lha_method_names[method]);
+}
 
+void test_file(const std::string& filename, LhaMethod method)
+{
+    test_file(filename, read_file(filename), method);
 }
 
 #include <filesystem>
@@ -88,7 +92,7 @@ void test_recompress()
                 continue;
             orig_compressed += hdr.compressed_size;
             const auto orig_data = decompress(lha_file, hdr);
-            const auto new_comp = encode_lh(orig_data.data(), (uint32_t)orig_data.size(), method);
+            const auto new_comp = compress(orig_data.data(), (uint32_t)orig_data.size(), method);
             std::println("{}{} {} {}", hdr.dirname, hdr.filename, hdr.compressed_size, new_comp.size());
             if (decompress(new_comp.data(), (uint32_t)new_comp.size(), (uint32_t)orig_data.size(), method) != orig_data)
                 throw std::runtime_error { std::format("Decompression failed for {}{}", hdr.dirname, hdr.filename) };
@@ -284,7 +288,8 @@ int main()
     try {
         const std::string dir = "../test_comp/";
         test_obs();
-        test_file(dir + "skykule.rmsh.mat", LHA_METHOD_LH5);
+        test_file("empty", std::vector<uint8_t> {}, LHA_METHOD_LH5);
+        test_file("one char", std::vector<uint8_t> {'x'}, LHA_METHOD_LH5);
         //test_recompress();
         test_dir(dir, LHA_METHOD_LH5);
         test_file(dir + "80croc.def", LHA_METHOD_LH7);
