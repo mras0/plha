@@ -66,11 +66,38 @@ void test_file(const std::string& filename, LhaMethod method)
 }
 
 #include <filesystem>
+namespace fs = std::filesystem;
 void test_dir(const std::string& dir_path, LhaMethod method)
 {
-    namespace fs = std::filesystem;
     for (const auto& e : fs::recursive_directory_iterator { dir_path })
         test_file(e.path().string(), method);
+}
+
+#include "lhafile.h"
+void test_recompress()
+{
+    for (const auto& e : fs::recursive_directory_iterator { "../test_decomp" }) {
+        if (e.path().filename() == "im-tools.lha")
+            continue;
+        const auto lha_file = read_file(e.path().string());
+        LhaFileReader lf {lha_file.data(), lha_file.size()};
+        size_t orig_compressed = 0, new_compressed = 0;
+        for (LhaHeader hdr; lf.next(hdr);) {
+            const auto method = lha_method_from_id(hdr.compression_method);
+            if (method == LHA_METHOD_DIR || method == LHA_METHOD_LH0)
+                continue;
+            orig_compressed += hdr.compressed_size;
+            const auto orig_data = decompress(lha_file, hdr);
+            const auto new_comp = encode_lh(orig_data.data(), (uint32_t)orig_data.size(), method);
+            std::println("{}{} {} {}", hdr.dirname, hdr.filename, hdr.compressed_size, new_comp.size());
+            if (decompress(new_comp.data(), (uint32_t)new_comp.size(), (uint32_t)orig_data.size(), method) != orig_data)
+                throw std::runtime_error { std::format("Decompression failed for {}{}", hdr.dirname, hdr.filename) };
+            new_compressed += new_comp.size();
+        }
+
+        std::println("{:30s} {:6d} {:6d} {:.2f}%", e.path().string(), new_compressed, orig_compressed, new_compressed * 100. / orig_compressed);
+
+    }
 }
 
 
@@ -255,8 +282,10 @@ Tweaked match length cost:
 int main()
 {
     try {
-        test_obs();
         const std::string dir = "../test_comp/";
+        test_obs();
+        test_file(dir + "skykule.rmsh.mat", LHA_METHOD_LH5);
+        //test_recompress();
         test_dir(dir, LHA_METHOD_LH5);
         test_file(dir + "80croc.def", LHA_METHOD_LH7);
     } catch (const std::exception& e) {

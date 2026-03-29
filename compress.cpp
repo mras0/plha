@@ -49,3 +49,8 @@ std::vector<uint8_t> encode_lh(const std::vector<LzNode>& lz, LhaMethod method)
     }
     return obs.finish();
 }
+
+std::vector<uint8_t> encode_lh(const uint8_t* data, uint32_t size, LhaMethod method)
+{
+    return encode_lh(lz_build(data, size, window_bits_for_method(method)), method);
+}

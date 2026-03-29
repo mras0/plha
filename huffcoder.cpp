@@ -138,6 +138,10 @@ HuffCoder::HuffCoder(const std::vector<uint32_t>& freq)
 void HuffCoder::encode(OutputBitString& obs, uint16_t sym) const
 {
     assert(sym < num_sym_);
+    if (!clen_[sym]) {
+        assert(!clen_[num_sym_ - 1]);
+        return;
+    }
     obs.put(code_[sym], clen_[sym]);
 }
 
@@ -152,9 +156,12 @@ void HuffCoder::encode_table_c(OutputBitString& obs) const
     // ...
 
 
-    // TODO: Special case is possible if all codes have the same length
-    if (!num_sym_)
-        throw std::runtime_error { "TODO: Empty c-table?!" };
+    // TODO: Special case is possible if all codes have the same length (or there is only one symbol)
+    assert(num_sym_);
+    if (!clen_[num_sym_ - 1]) {
+        assert(std::all_of(clen_.begin(), clen_.end(), [](uint32_t len) { return len == 0; }));
+        throw std::runtime_error { "TODO: Special case for only one char" };
+    }
 
     std::vector<uint32_t> t_freq(NT);
     uint32_t zero_run = 0;
@@ -207,8 +214,19 @@ void HuffCoder::encode_table_c(OutputBitString& obs) const
 
 void HuffCoder::encode_table_p(OutputBitString& obs, uint32_t window_bits) const
 {
+    assert(num_sym_);
     assert(num_sym_ <= NT);
-    obs.put(num_sym_, window_bits < 14 ? 4 : 5);
+    const auto tbits = window_bits < 14 ? 4 : 5;
+
+    // Special case: Only one symbol
+    if (!clen_[num_sym_ - 1]) {
+        assert(std::all_of(clen_.begin(), clen_.end(), [](uint32_t len) { return len == 0; }));
+        obs.put(0, tbits);
+        obs.put(num_sym_ - 1, tbits);
+        return;
+    }
+
+    obs.put(num_sym_, tbits);
     for (uint32_t i = 0; i < num_sym_; ++i)
         encode_pt_len(obs, clen_[i]);
 }
