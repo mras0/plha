@@ -193,15 +193,72 @@ New MatchFinder (max match 64)
 ../test_comp/sprite_intro        3327  14984 22.20% -lh5-
 ../test_comp/Zombies.SHP        56020 245720 22.80% -lh5-
 ../test_comp/Green Eggs and Ham.txt    716   3475 20.60% -lh7-
+
+Dynamic cost model:
+../test_comp/80croc.def         20393 170782 11.94% -lh5-
+../test_comp/BLOX1.DAT          41027 112384 36.51% -lh5-
+../test_comp/data.adpcm        518159 570307 90.86% -lh5-
+../test_comp/Green Eggs and Ham.txt    710   3475 20.43% -lh5-
+../test_comp/jp2_000           126135 267264 47.19% -lh5-
+../test_comp/jp2_001            16978  34468 49.26% -lh5-
+../test_comp/jp2_002            21190  51100 41.47% -lh5-
+../test_comp/MAIN.BIN           69412 118784 58.44% -lh5-
+../test_comp/simple.txt            18     96 18.75% -lh5-
+../test_comp/sprite_intro        3310  14984 22.09% -lh5-
+../test_comp/Zombies.SHP        55195 245720 22.46% -lh5-
+../test_comp/Green Eggs and Ham.txt    710   3475 20.43% -lh7-
+
+Dynamic cost model (best of 20 iterations):
+../test_comp/80croc.def         20173 170782 11.81% -lh5-
+../test_comp/BLOX1.DAT          40804 112384 36.31% -lh5-
+../test_comp/data.adpcm        518160 570307 90.86% -lh5-
+../test_comp/Green Eggs and Ham.txt    702   3475 20.20% -lh5-
+../test_comp/jp2_000           125988 267264 47.14% -lh5-
+../test_comp/jp2_001            16790  34468 48.71% -lh5-
+../test_comp/jp2_002            21096  51100 41.28% -lh5-
+../test_comp/MAIN.BIN           69308 118784 58.35% -lh5-
+../test_comp/simple.txt            21     96 21.88% -lh5-
+../test_comp/sprite_intro        3298  14984 22.01% -lh5-
+../test_comp/Zombies.SHP        54995 245720 22.38% -lh5-
+../test_comp/Green Eggs and Ham.txt    702   3475 20.20% -lh7-
+
+Dynamic lit cost (only):
+../test_comp/80croc.def         20491 170782 12.00% -lh5-
+../test_comp/BLOX1.DAT          41017 112384 36.50% -lh5-
+../test_comp/data.adpcm        518270 570307 90.88% -lh5-
+../test_comp/Green Eggs and Ham.txt    715   3475 20.58% -lh5-
+../test_comp/jp2_000           126535 267264 47.34% -lh5-
+../test_comp/jp2_001            16888  34468 49.00% -lh5-
+../test_comp/jp2_002            21160  51100 41.41% -lh5-
+../test_comp/MAIN.BIN           69709 118784 58.69% -lh5-
+../test_comp/simple.txt            17     96 17.71% -lh5-
+../test_comp/sprite_intro        3342  14984 22.30% -lh5-
+../test_comp/Zombies.SHP        56041 245720 22.81% -lh5-
+../test_comp/Green Eggs and Ham.txt    715   3475 20.58% -lh7-
+
+Tweaked match length cost:
+../test_comp/80croc.def         20484 170782 11.99% -lh5-
+../test_comp/BLOX1.DAT          41056 112384 36.53% -lh5-
+../test_comp/data.adpcm        518487 570307 90.91% -lh5-
+../test_comp/Green Eggs and Ham.txt    714   3475 20.55% -lh5-
+../test_comp/jp2_000           126224 267264 47.23% -lh5-
+../test_comp/jp2_001            16865  34468 48.93% -lh5-
+../test_comp/jp2_002            21149  51100 41.39% -lh5-
+../test_comp/MAIN.BIN           69583 118784 58.58% -lh5-
+../test_comp/simple.txt            18     96 18.75% -lh5-
+../test_comp/sprite_intro        3336  14984 22.26% -lh5-
+../test_comp/Zombies.SHP        56051 245720 22.81% -lh5-
+../test_comp/Green Eggs and Ham.txt    714   3475 20.55% -lh7-
 */
 
+#include "huffcoder.h"
 int main()
 {
     try {
         test_obs();
         const std::string dir = "../test_comp/";
         test_dir(dir, LHA_METHOD_LH5);
-        test_file(dir + "Green Eggs and Ham.txt", LHA_METHOD_LH7);
+        test_file(dir + "80croc.def", LHA_METHOD_LH7);
     } catch (const std::exception& e) {
         std::println("{}", e.what());
         return 1;

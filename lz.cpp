@@ -135,24 +135,26 @@ private:
 static constexpr uint32_t p_cost = 4;
 static constexpr uint32_t sym_cost = 9;
 
-static inline uint32_t lit_cost(uint8_t ch)
-{
-    (void)ch;
-    // Doesn't improve it with new match finder
-    // if (ch == 0x00 || ch == 0xFF)
-    //    return sym_cost - 2;
-    return sym_cost;
-}
-
 static inline uint32_t offset_cost(uint32_t pos, uint32_t match_pos)
 {
+    // More accurate model of pcost (based on observed frequency) doesn't improve ratio
     return p_len(pos - match_pos - 1) + p_cost;
 }
 
+#include "huffcoder.h"
 std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window_bits, uint32_t max_matches)
 {
     if (!size)
         return {};
+
+    std::vector<uint32_t> lfreq(256);
+    for (uint32_t i = 0; i < size; ++i)
+        lfreq[data[i]]++;
+    HuffCoder hc { lfreq };
+    std::vector<uint8_t> litcost(256);
+    for (uint32_t i = 0; i < 256; ++i)
+        litcost[i] = uint8_t(hc.code_length()[i] + 2);
+
 
     MatchFinder mf { data, size, window_bits };
 
@@ -167,16 +169,17 @@ std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window
     std::vector<uint32_t> mlen(max_matches);
 
     for (uint32_t pos = 0; pos < size; ++pos) {
-        if (auto lc = cn[pos].cost + lit_cost(data[pos]); lc < cn[pos + 1].cost) {
+        if (auto lc = cn[pos].cost + litcost[data[pos]]; lc < cn[pos + 1].cost) {
             cn[pos + 1].cost = lc;
             cn[pos + 1].code = data[pos];
         }
 
         const uint32_t nmatches = mf.matches(pos, &mpos[0], &mlen[0], max_matches);
         for (uint32_t i = 0; i < nmatches; ++i) {
-            const auto match_cost = cn[pos].cost + sym_cost + offset_cost(pos, mpos[i]);
+            const auto base_cost = cn[pos].cost + /*sym_cost + */offset_cost(pos, mpos[i]);
             for (uint32_t j = min_match_len; j <= mlen[i]; ++j) {
                 auto& n = cn[pos + j];
+                const auto match_cost = base_cost + 7 + p_len(j - min_match_len);
                 if (match_cost < n.cost) {
                     n.cost = match_cost;
                     n.code = (uint16_t)(256 + j - min_match_len);
