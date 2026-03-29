@@ -24,4 +24,14 @@ extern const uint8_t method_names[LHA_METHOD_UNKNOWN][5];
 
 LhaMethod lha_method_from_id(const uint8_t (&method)[5]);
 
+static inline uint16_t p_len(uint32_t n)
+{
+    uint16_t l = 0;
+    while (n) {
+        l++;
+        n >>= 1;
+    }
+    return l;
+}
+
 #endif

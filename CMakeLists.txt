@@ -33,7 +33,9 @@ add_library(plha_lib STATIC
     ibs.cpp ibs.h
     decompress.cpp decompress.h
     obs.cpp obs.h
-    huffcode.cpp huffcode.h
+    lz.cpp lz.h
+    huffcoder.cpp huffcoder.h
+    compress.cpp compress.h
     )
 
 add_executable(test_decompress
