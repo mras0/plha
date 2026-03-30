@@ -33,4 +33,6 @@ private:
 
 bool is_method(const uint8_t (&l)[5], const uint8_t (&r)[5]);
 
+void lha_header_append(std::vector<uint8_t>& data, const LhaHeader& hdr);
+
 #endif

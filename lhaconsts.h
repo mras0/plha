@@ -15,6 +15,8 @@ static constexpr uint32_t NC = 255 + max_match_len + 2 - min_match_len;
 static constexpr uint32_t TBIT = 5;
 static constexpr uint32_t CBIT = 9;
 
+static constexpr uint8_t lha_os_amiga = 'A';
+
 enum LhaMethod {
     LHA_METHOD_DIR, // directory entry
     LHA_METHOD_LH0, // uncompressed

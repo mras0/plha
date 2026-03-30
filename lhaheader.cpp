@@ -30,9 +30,8 @@ std::string lha_time_str(uint16_t t)
     return std::format("{:02d}:{:02d}:{:02d}", t >> 11, (t >> 5) & 0x3f, 2 * (t & 0x1f));
 }
 
-void lha_header_convert_unix_to_dos_time(LhaHeader& hdr)
+void lha_header_set_dos_time(LhaHeader& hdr, int64_t t)
 {
-    int64_t t = hdr.mod_date << 16 | hdr.mod_time;
     static constexpr int64_t seconds_per_day = 24 * 60 * 60;
     static constexpr int64_t epoch_offset = -2440588 * seconds_per_day; // 2440588 is JDN for 1970-01-01
 
@@ -66,4 +65,9 @@ void lha_header_convert_unix_to_dos_time(LhaHeader& hdr)
 
     hdr.mod_time = (uint16_t)(hrs << 11 | min << 5 | sec >> 1);
     hdr.mod_date = (uint16_t)((Y - 1980) << 9 | M << 5 | D);
+}
+
+void lha_header_convert_unix_to_dos_time(LhaHeader& hdr)
+{
+    lha_header_set_dos_time(hdr, hdr.mod_date << 16 | hdr.mod_time);
 }

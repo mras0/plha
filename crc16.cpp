@@ -1,7 +1,7 @@
 #include "crc16.h"
 
 // CRC-16-ANSI, x^16 + x^15 + x^2 +  1
-uint16_t crc16(void* data, size_t size, uint16_t crc)
+uint16_t crc16(const void* data, size_t size, uint16_t crc)
 {
     auto dat = reinterpret_cast<const uint8_t*>(data);
     #if 0

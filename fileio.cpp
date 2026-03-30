@@ -2,6 +2,9 @@
 #include <format>
 #include <memory>
 #include <stdexcept>
+#include <cerrno>
+#include <cstring>
+#include <algorithm>
 
 struct FileCloser {
     void operator()(FILE * fp)
@@ -12,11 +15,16 @@ struct FileCloser {
 };
 using FilePointer = std::unique_ptr<FILE, FileCloser>;
 
+bool FileOpenException::err_not_found() const
+{
+    return err() == ENOENT;
+}
+
 FilePointer open_file(const std::string& filename, const char* mode)
 {
     FilePointer fp {fopen(filename.c_str(), mode) };
     if (!fp)
-        throw std::runtime_error { std::format("Could not open \"{}\" with mode {}", filename, mode) };
+        throw FileOpenException { std::format("Could not open \"{}\" with mode {} - {}", filename, mode, std::strerror(errno)), errno };
     return fp;
 }
 
@@ -46,4 +54,57 @@ void write_file(const std::string& filename, const std::vector<uint8_t>& data)
     write_file(filename, data.data(), data.size());
 }
 
+static uint8_t to_upper(uint8_t ch)
+{
+    return ch >= 'a' && ch <= 'z' ? ch + 'A' - 'a' : ch;
+}
 
+int filename_cmp(const char* l, const char* r)
+{
+    for (;;) {
+        const auto lc = static_cast<uint8_t>(*l++);
+        const auto rc = static_cast<uint8_t>(*r++);
+        if (!lc && !rc)
+            return 0;
+        if (lc == rc)
+            continue;
+        const int diff = to_upper(lc) - to_upper(rc);
+        if (diff)
+            return diff < 0 ? -1 : 1;
+    }
+}
+
+bool wildcard_match(const char* pattern, const char* str)
+{
+    for (;;) {
+        const char p = *pattern++;
+        const char s = *str;
+        if (!p)
+            return !*str;
+        if (p == '?') {
+            if (!s)
+                return false;
+        } else if (p == '*') {
+            for (auto s2 = str; *s2; ++s2)
+                if (wildcard_match(pattern, s2))
+                    return true;
+            return !*pattern;
+        } else if (to_upper(p) != to_upper(s))
+            return false;
+        ++str;
+    }
+}
+
+PathComponents split_path(const std::string& path)
+{
+    auto sep_pos = path.find_last_of("/\\");
+    if (sep_pos == std::string::npos)
+        return { "", path };
+    ++sep_pos;
+    
+    PathComponents pc;
+    pc.dirname = path.substr(0, sep_pos);
+    pc.filename = path.substr(sep_pos);
+    std::replace(pc.dirname.begin(), pc.dirname.end(), '\\', '/');
+    return pc;
+}

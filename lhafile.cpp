@@ -4,6 +4,7 @@
 #include <print>
 #include <algorithm>
 #include <cstring>
+#include <cassert>
 
 LhaFileReader::LhaFileReader(const uint8_t* data, size_t size)
     : data_ { data }
@@ -141,7 +142,7 @@ void LhaFileReader::read_level1_header(LhaHeader& hdr)
 {
     check_header_checksum(hdr);
 
-    // TODO: "compressed_size" includes extended headers
+    // Note: "compressed_size" includes extended headers
     hdr.filename = get_string(get_u8());
     hdr.crc = get_u16();
     hdr.os = get_u8();
@@ -196,4 +197,63 @@ void LhaFileReader::handle_extended_headers(LhaHeader& hdr)
 bool is_method(const uint8_t (&l)[5], const uint8_t (&r)[5])
 {
     return !memcmp(l, r, sizeof(l));
+}
+
+void lha_header_append(std::vector<uint8_t>& data, const LhaHeader& hdr)
+{
+    if (hdr.level != 1)
+        throw std::runtime_error { std::format("Level {} header not supported in lha_header_append", hdr.level) };
+
+    if (hdr.filename.size() > 255 - 27)
+        throw std::runtime_error { std::format("Filename too long (should be in extended header)") };
+
+    uint32_t ext_size = 0;
+    if (!hdr.dirname.empty())
+        ext_size += 3 + (uint32_t)hdr.dirname.size();
+
+    auto put_u8 = [&data](uint8_t val) {
+        data.push_back(val);
+    };
+    auto put_u16 = [&data](uint16_t val) {
+        data.push_back((uint8_t)val);
+        data.push_back((uint8_t)(val >> 8));
+    };
+    auto put_u32 = [&data](uint32_t val) {
+        data.push_back((uint8_t)val);
+        data.push_back((uint8_t)(val >> 8));
+        data.push_back((uint8_t)(val >> 16));
+        data.push_back((uint8_t)(val >> 24));
+    };
+
+    const size_t hdr_start = data.size();
+    put_u8(0); // Hdr size (filled later)
+    put_u8(0); // Hdr checksum (filled later)
+    data.insert(data.end(), std::begin(hdr.compression_method), std::end(hdr.compression_method));
+    put_u32(hdr.compressed_size + (hdr.level == 1 ? ext_size : 0));
+    put_u32(hdr.original_size);
+    // N.B. different for level 2 headers
+    put_u16(hdr.mod_time);
+    put_u16(hdr.mod_date);
+    put_u8(0x20); // attributes (?!)
+    put_u8(hdr.level);
+    put_u8((uint8_t)hdr.filename.size());
+    data.insert(data.end(), hdr.filename.begin(), hdr.filename.end());
+    put_u16(hdr.crc);
+    put_u8(hdr.os);
+    const size_t hdr_end = data.size() + 2; // The first extended header size is included
+    if (!hdr.dirname.empty()) {
+        put_u16((uint16_t)(3 + hdr.dirname.size()));
+        put_u8(2);
+        auto dn = hdr.dirname;
+        assert(dn.back() == '/');
+        std::replace(dn.begin(), dn.end(), '\\', '\xFF');
+        std::replace(dn.begin(), dn.end(), '/', '\xFF');
+        data.insert(data.end(), dn.begin(), dn.end());
+    }
+    put_u16(0); // End of extended header
+    // Update size
+    data[hdr_start] = (uint8_t)(hdr_end - hdr_start - 2);
+    // And checksum
+    for (size_t i = hdr_start + 2; i < hdr_end; ++i)
+        data[hdr_start + 1] += data[i];
 }

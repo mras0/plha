@@ -30,6 +30,7 @@ add_library(plha_lib STATIC
     lhaheader.cpp lhaheader.h
     lhafile.cpp lhafile.h
     lhaconsts.cpp lhaconsts.h
+    lhacompress.cpp lhacompress.h
     ibs.cpp ibs.h
     decompress.cpp decompress.h
     obs.cpp obs.h
@@ -47,6 +48,11 @@ add_executable(test_compress
     test_compress.cpp
     )
 target_link_libraries(test_compress plha_lib)
+
+add_executable(test_archive
+    test_archive.cpp
+    )
+target_link_libraries(test_archive plha_lib)
 
 add_executable(plha
     main.cpp

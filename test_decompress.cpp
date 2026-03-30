@@ -24,7 +24,7 @@ void test_file(const std::string& filename)
 void test_dir(const std::string& dir_path)
 {
     namespace fs = std::filesystem;
-    for (const auto& e : fs::recursive_directory_iterator { dir_path }) {
+    for (const auto& e : fs::recursive_directory_iterator { dir_path, fs::directory_options::skip_permission_denied }) {
         try {
             if (e.is_directory())
                 continue;
