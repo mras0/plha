@@ -100,18 +100,11 @@ private:
 
     explicit DynamicHuffDecompressor(const uint8_t* data, uint32_t compressed_size, uint32_t uncompressed_size, uint16_t dict_bits)
         : DecompressorBase { data, compressed_size, uncompressed_size, dict_bits }
-        , ctree_ { 256 + 60 - 2 }
+        , ctree_ { lh1_nchars }
         , ptable_ { 0x40, 8 }
     {
       
-        const uint8_t cc[] = { 0, 0, 0, 1, 3, 8, 12, 24, 16 };
-        uint8_t clen[64];
-        for (uint8_t sym = 0, len = 3; len < std::size(cc); ++len) {
-            for (int j = 0; j < cc[len]; ++j)
-                clen[sym++] = len;
-        }
-
-        ptable_.set_lengths(clen);
+        ptable_.set_lengths(lh1_p_codelen);
     }
 
     DynHuffTree ctree_;

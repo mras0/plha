@@ -9,8 +9,8 @@
 HuffTable::HuffTable(uint16_t num_syms, uint32_t table_bits)
     : num_syms_ { num_syms }
     , table_bits_ { table_bits }
-    , code_len_(num_syms)
     , tree_size_(2 * num_syms - 1)
+    , code_len_(num_syms)
 {
     assert(table_bits_ <= 16);
     assert(1U << table_bits_ <= max_table_size);

@@ -339,6 +339,9 @@ static bool parse_options(Options& opts, int& argc, char**& argv)
             case 'r':
                 opts.recursive = true;
                 break;
+            case '1':
+                opts.compression_method = LHA_METHOD_LH1;
+                break;
             case '4':
                 opts.compression_method = LHA_METHOD_LH4;
                 break;

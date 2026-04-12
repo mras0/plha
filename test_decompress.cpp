@@ -21,6 +21,8 @@ void test_file(const std::string& filename)
 }
 
 #include <filesystem>
+
+static std::vector<std::pair<std::string, std::string>> failed;
 void test_dir(const std::string& dir_path)
 {
     namespace fs = std::filesystem;
@@ -39,20 +41,29 @@ void test_dir(const std::string& dir_path)
             std::println("{} - {}", e.path().string(), ex.what());
             continue;
         }
-
-        test_file(e.path().string());
+        try {
+            test_file(e.path().string());
+        } catch (const std::exception& ex) {
+            std::println("{} - {}", e.path().string(), ex.what());
+            failed.push_back({ e.path().string(), ex.what() });
+        }
     }
 }
 
 int main()
 {
+    //blkstuff.lzh - Not valid
+    //TODO: lha\tests\lha-test16-l0.lzh - Invalid header size. Extended header size -12
     try {
-        //
-        test_file("../test_decomp/PPDecrunch10.lzh");
-        test_file("../test_decomp/imploder-4.0.lzh");
-        test_file("../test_decomp/glowria.lzh");
-        test_file("../test_decomp/Mnemonics.lzh");
+        //test_dir("c:/");
         test_dir("../test_decomp");
+
+        for (const auto& [f, e] : failed)
+            std::println("{} - {}", f, e);
+
+        if (!failed.empty())
+            return 1;
+
     } catch (const std::exception& e) {
         std::println("{}", e.what());
         return 1;

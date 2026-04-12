@@ -8,6 +8,7 @@
 class HuffCoder {
 public:
     explicit HuffCoder(const std::vector<uint32_t>& freq);
+    explicit HuffCoder(const uint8_t* codelen, uint32_t num_syms);
 
     void encode(OutputBitString& obs, uint16_t sym) const;
 

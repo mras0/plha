@@ -53,7 +53,7 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
 
 void test_file(const std::string& filename, const std::vector<uint8_t>& data, LhaMethod method)
 {
-    const auto lz = lz_build(data.data(), (uint32_t)data.size(), window_bits_for_method(method));
+    const auto lz = lz_build(data.data(), (uint32_t)data.size(), method == LHA_METHOD_LH1 ? 60 : max_match_len, window_bits_for_method(method));
     test_lz(data.data(), (uint32_t)data.size(), lz);
     const auto encoded = compress(lz, method);
     const auto decoded = decompress(encoded.data(), (uint32_t)encoded.size(), (uint32_t)data.size(), method);
@@ -290,10 +290,12 @@ int main()
         test_obs();
         test_file("empty", std::vector<uint8_t> {}, LHA_METHOD_LH5);
         test_file("one char", std::vector<uint8_t> {'x'}, LHA_METHOD_LH5);
-        //test_recompress();
+        test_file("LH1 test", std::vector<uint8_t> { 'h', 'h', 'h', 'h', 'h', 'e', 'l' }, LHA_METHOD_LH1);
+        // test_recompress();
         test_dir(dir, LHA_METHOD_LH5);
-        test_file(dir + "80croc.def", LHA_METHOD_LH7);
+        test_file(dir + "80croc.def", LHA_METHOD_LH1);
         test_file(dir + "80croc.def", LHA_METHOD_LH4);
+        test_file(dir + "80croc.def", LHA_METHOD_LH7);
     } catch (const std::exception& e) {
         std::println("{}", e.what());
         return 1;

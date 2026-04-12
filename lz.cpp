@@ -4,16 +4,18 @@
 #include <algorithm>
 #include <cstring>
 
+#define max_match_len XXX
+
 // Heavily inspired by similar class in in shrinkler
 class MatchFinder {
 public:
-
-    MatchFinder(const uint8_t* src, uint32_t len, uint16_t window_bits)
+    MatchFinder(const uint8_t* src, uint32_t len, uint32_t max_match, uint16_t window_bits)
         : len_ { len }
         , pos_(len)
         , rev_(len)
         , lcp_(len)
-        , max_offset { 1U << window_bits }
+        , max_offset_ { 1U << window_bits }
+        , max_match_ { max_match }
     {
         for (uint32_t i = 0; i < len; ++i)
             pos_[i] = i;
@@ -50,10 +52,10 @@ public:
         for (nmatches = 0; nmatches < max_matches;) {
             if (!next_match(*mpos, *mlen))
                 break;
-            if (start_pos - *mpos > max_offset)
+            if (start_pos - *mpos > max_offset_)
                 continue;
-            if (*mlen > max_match_len)
-                *mlen = max_match_len;
+            if (*mlen > max_match_)
+                *mlen = max_match_;
             ++mlen;
             ++mpos;
             ++nmatches;
@@ -70,7 +72,8 @@ private:
     uint32_t left_idx_ = 0, left_len_ = 0;
     uint32_t right_idx_ = 0, right_len_ = 0;
     uint32_t cur_pos_ = 0;
-    const uint32_t max_offset;
+    const uint32_t max_offset_;
+    const uint32_t max_match_;
 
     void start(uint32_t p)
     {
@@ -142,7 +145,7 @@ static inline uint32_t offset_cost(uint32_t pos, uint32_t match_pos)
 }
 
 #include "huffcoder.h"
-std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window_bits, uint32_t max_matches)
+std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint32_t max_match, uint16_t window_bits, uint32_t max_matches)
 {
     if (!size)
         return {};
@@ -156,7 +159,7 @@ std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint16_t window
         litcost[i] = uint8_t(hc.code_length()[i] + 2);
 
 
-    MatchFinder mf { data, size, window_bits };
+    MatchFinder mf { data, size, max_match, window_bits };
 
     struct CostNode {
         uint16_t code = 0;

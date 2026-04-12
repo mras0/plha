@@ -1,5 +1,6 @@
 #include "dynhuff.h"
 #include "ibs.h"
+#include "obs.h"
 #include <queue>
 
 DynHuffTree::DynHuffTree(uint16_t num_symbols)
@@ -168,6 +169,21 @@ uint16_t DynHuffTree::decode(InputBitString& ibs)
     node -= tree_size;
     update(node);
     return node;
+}
+
+void DynHuffTree::encode(OutputBitString& obs, uint16_t sym)
+{
+    assert(sym < num_symbols_);
+    uint16_t code = 0;
+    uint16_t clen = 0;
+    uint16_t node = parent_[sym + tree_size];
+    while (node != root) {
+        code |= (node & 1) << clen;
+        ++clen;
+        node = parent_[node];
+    }
+    obs.put(code, clen);
+    update(sym);
 }
 
 #if 0

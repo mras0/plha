@@ -2,6 +2,7 @@
 #include "lz.h"
 #include "obs.h"
 #include "huffcoder.h"
+#include "dynhuff.h"
 #include "lhaconsts.h"
 #include <cassert>
 
@@ -37,20 +38,39 @@ static void encode_block(OutputBitString& obs, const LzNode* lz, uint16_t size, 
     }
 }
 
+static void encode_lh1(OutputBitString& obs, const std::vector<LzNode>& lz)
+{
+    DynHuffTree ctree { lh1_nchars };
+    HuffCoder pcoder { lh1_p_codelen, sizeof(lh1_p_codelen) };
+
+    for (const auto [code, ofs] : lz) {
+        ctree.encode(obs, code);
+        if (code < 256)
+            continue;
+        pcoder.encode(obs, ofs >> 6);
+        obs.put(ofs & 0x3f, 6);
+    }
+}
+
 std::vector<uint8_t> compress(const std::vector<LzNode>& lz, LhaMethod method)
 {
     OutputBitString obs;
     uint16_t window_bits = window_bits_for_method(method);
-    // TODO: Maybe it's worth doing smaller blocks once frequency of codes changes "enough"
-    for (size_t pos = 0; pos < lz.size();) {
-        const auto here = std::min(size_t(65535), lz.size() - pos);
-        encode_block(obs, &lz[pos], (uint16_t)here, window_bits);
-        pos += here;
+    if (method == LHA_METHOD_LH1) {
+        encode_lh1(obs, lz);
+    } else {
+        // TODO: Maybe it's worth doing smaller blocks once frequency of codes changes "enough"
+        for (size_t pos = 0; pos < lz.size();) {
+            const auto here = std::min(size_t(65535), lz.size() - pos);
+            encode_block(obs, &lz[pos], (uint16_t)here, window_bits);
+            pos += here;
+        }
     }
     return obs.finish();
 }
 
 std::vector<uint8_t> compress(const uint8_t* data, uint32_t size, LhaMethod method)
 {
-    return compress(lz_build(data, size, window_bits_for_method(method)), method);
+    const uint32_t max_match = method == LHA_METHOD_LH1 ? 60 : max_match_len;
+    return compress(lz_build(data, size, max_match, window_bits_for_method(method)), method);
 }

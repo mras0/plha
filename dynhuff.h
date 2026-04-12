@@ -5,12 +5,14 @@
 #include <vector>
 
 class InputBitString;
+class OutputBitString;
 
 class DynHuffTree {
 public:
     explicit DynHuffTree(uint16_t num_symbols);
 
     uint16_t decode(InputBitString& ibs);
+    void encode(OutputBitString& obs, uint16_t sym);
 
 private:
     void update(uint16_t sym);

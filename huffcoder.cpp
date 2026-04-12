@@ -139,6 +139,13 @@ HuffCoder::HuffCoder(const std::vector<uint32_t>& freq)
     code_ = assign_codes(clen_);
 }
 
+HuffCoder::HuffCoder(const uint8_t* codelen, uint32_t num_syms)
+    : num_sym_ { num_syms }
+    , clen_ (codelen, codelen + num_syms)
+{
+    code_ = assign_codes(clen_);
+}
+
 void HuffCoder::encode(OutputBitString& obs, uint16_t sym) const
 {
     assert(sym < num_sym_);
