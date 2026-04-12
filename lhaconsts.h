@@ -20,6 +20,9 @@ static constexpr uint8_t lha_os_amiga = 'A';
 enum LhaMethod {
     LHA_METHOD_DIR, // directory entry
     LHA_METHOD_LH0, // uncompressed
+    // dynamic huffman
+    LHA_METHOD_LH1, // 4K dict
+    // static huffman
     LHA_METHOD_LH4, // 4K dict
     LHA_METHOD_LH5, // 8K dict
     LHA_METHOD_LH6, // 32K dict
