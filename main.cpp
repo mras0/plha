@@ -7,6 +7,8 @@
 #include "decompress.h"
 #include "lhacompress.h"
 
+// https://web.archive.org/web/20110817112842/http://homepage1.nifty.com/dangan/en/Content/Program/Java/jLHA/Notes/Notes.html
+
 namespace fs = std::filesystem;
 
 using dispatch_function = int (*)(const struct Options& opts, int argc, char** argv);
@@ -336,6 +338,9 @@ static bool parse_options(Options& opts, int& argc, char**& argv)
                 break;
             case 'r':
                 opts.recursive = true;
+                break;
+            case '4':
+                opts.compression_method = LHA_METHOD_LH4;
                 break;
             case '5':
                 opts.compression_method = LHA_METHOD_LH5;

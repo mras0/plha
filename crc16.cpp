@@ -56,5 +56,3 @@ uint16_t crc16(const void* data, size_t size, uint16_t crc)
 
     return crc;
 }
-
-

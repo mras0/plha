@@ -6,6 +6,7 @@
 const uint8_t lha_method_names[LHA_METHOD_UNKNOWN][6] = {
     { '-', 'l', 'h', 'd', '-', 0 },
     { '-', 'l', 'h', '0', '-', 0 },
+    { '-', 'l', 'h', '4', '-', 0 },
     { '-', 'l', 'h', '5', '-', 0 },
     { '-', 'l', 'h', '6', '-', 0 },
     { '-', 'l', 'h', '7', '-', 0 },
@@ -22,6 +23,8 @@ LhaMethod lha_method_from_id(const uint8_t (&method)[5])
 uint16_t window_bits_for_method(LhaMethod method)
 {
     switch (method) {
+    case LHA_METHOD_LH4:
+        return 12;
     case LHA_METHOD_LH5:
         return 13;
     case LHA_METHOD_LH6:

@@ -159,8 +159,9 @@ void HuffTable::make_table()
     const uint32_t table_size = std::min(1U << table_bits_, max_table_size);
     assert(table_size == table_.size());
 
-    std::memset(left_, 0, sizeof(left_));
-    std::memset(right_, 0, sizeof(right_));
+    //std::memset(left_, 0, sizeof(left_));
+    //std::memset(right_, 0, sizeof(right_));
+    // Only need to clear entries for start[table_bits_+1] onwards...
     std::memset(&table_[0], 0, table_size * sizeof(table_[0]));
     uint16_t avail = num_syms_;
 

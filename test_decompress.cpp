@@ -47,6 +47,7 @@ void test_dir(const std::string& dir_path)
 int main()
 {
     try {
+        //test_file("../test_decomp/explode.lha");
         test_dir("../test_decomp");
     } catch (const std::exception& e) {
         std::println("{}", e.what());

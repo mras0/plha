@@ -293,6 +293,7 @@ int main()
         //test_recompress();
         test_dir(dir, LHA_METHOD_LH5);
         test_file(dir + "80croc.def", LHA_METHOD_LH7);
+        test_file(dir + "80croc.def", LHA_METHOD_LH4);
     } catch (const std::exception& e) {
         std::println("{}", e.what());
         return 1;
