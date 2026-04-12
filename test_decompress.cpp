@@ -8,6 +8,8 @@
 #include "decompress.h"
 
 #include "ibs.h"
+#include <algorithm>
+#include <queue>
 
 template<uint16_t NumSyms>
 class DynHuffTree {
@@ -63,6 +65,53 @@ public:
 
     void reconstruct()
     {
+        struct QueueNode {
+            uint16_t freq;
+            uint16_t val;
+            uint16_t order;
+
+            bool operator<(const QueueNode& n) const
+            {
+                return freq > n.freq || (freq == n.freq && order > n.order);
+            }
+        };
+
+        std::priority_queue<QueueNode> pq;
+        uint16_t order = 0;
+
+        for (uint16_t node = 0; node < tree_size; ++node) {
+            const auto ch = child_[node];
+            if (ch >= tree_size) {
+                QueueNode n;
+                n.freq = (freq_[node] + 1) >> 1;
+                n.val = ch;
+                n.order = order++;
+                pq.push(n);
+            }
+        }
+             
+        uint16_t nodenum = 0;
+        auto get_node = [&]() {
+            auto n = pq.top();
+            pq.pop();
+            child_[nodenum] = n.val;
+            freq_[nodenum] = n.freq;
+            set_parent(nodenum);
+            ++nodenum;
+            return n.freq;
+        };
+        for (; pq.size() >= 2;) {
+            auto l = get_node();
+            auto r = get_node();
+            QueueNode n;
+            n.freq = l + r;
+            n.val = nodenum - 2;
+            n.order = order++;
+            pq.push(n);
+        }
+        get_node();
+
+#if 0
         // Collect leaves in first half and halve frequency
         for (uint16_t node = 0, nsyms = 0; node < tree_size; ++node) {
             if (child_[node] < tree_size)
@@ -96,9 +145,17 @@ public:
             child_[k] = c;
             #endif
         }
+        for (int i = 0; i < tree_size; ++i) {
+            if (nodes[i].val != child_[i] || nodes[i].freq != freq_[i]) {
+                std::println("{:3x} {:3x} {:4d} --- {:3x} {:4d}", i, nodes[i].val, nodes[i].freq, child_[i], freq_[i]);
+                exit(1);
+            }
+        }
+
         // Reconnect parent
         for (uint16_t i = 0; i < tree_size; ++i)
             set_parent(i);
+#endif
     }
 
     void set_parent(uint16_t node)
@@ -314,6 +371,7 @@ void test_lh1_file(const std::string& filename)
     DynHuffTree<4> tr {};
     tr.print_info();
     tr.print();
+    exit(0);
     for (int i = 0; i < 3; ++i) {
         std::println("-------------------");
         tr.update(1);
@@ -387,6 +445,7 @@ int main()
         test_lh1_file("../test_decomp/PPDecrunch10.lzh");
         test_lh1_file("../test_decomp/imploder-4.0.lzh");
         test_lh1_file("../test_decomp/glowria.lzh");
+        test_lh1_file("../test_decomp/Mnemonics.lzh");
         test_dir("../test_decomp");
     } catch (const std::exception& e) {
         std::println("{}", e.what());
