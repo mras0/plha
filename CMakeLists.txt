@@ -33,6 +33,8 @@ add_library(plha_lib STATIC
     lhacompress.cpp lhacompress.h
     ibs.cpp ibs.h
     decompress.cpp decompress.h
+    hufftable.cpp hufftable.h
+    dynhuff.cpp dynhuff.h
     obs.cpp obs.h
     lz.cpp lz.h
     huffcoder.cpp huffcoder.h
