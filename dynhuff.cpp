@@ -1,7 +1,7 @@
 #include "dynhuff.h"
 #include "ibs.h"
 #include "obs.h"
-#include <queue>
+#include <algorithm>
 
 DynHuffTree::DynHuffTree(uint16_t num_symbols)
     : num_symbols_ { num_symbols }
@@ -27,6 +27,9 @@ DynHuffTree::DynHuffTree(uint16_t num_symbols)
 
     freq_[tree_size] = 0xffff; // sentinel
     parent_[root] = 0;
+#ifdef DHUFFTABLE
+    build_table();
+#endif
 }
 
 void DynHuffTree::update(uint16_t sym)
@@ -34,6 +37,7 @@ void DynHuffTree::update(uint16_t sym)
     if (freq_[root] == max_freq)
         reconstruct();
     uint16_t node = parent_[sym + tree_size];
+    uint16_t max_node = 0;
     do {
         uint16_t node_freq = ++freq_[node];
         uint16_t next = node + 1; // sibling
@@ -52,9 +56,16 @@ void DynHuffTree::update(uint16_t sym)
             set_parent(node);
 
             node = next;
+            max_node = node;
         }
         node = parent_[node];
     } while (node);
+
+#ifdef DHUFFTABLE
+    if (max_node > root - 2*(1 << tbits) - 1)
+        build_table();
+#endif
+
 }
 
 void DynHuffTree::reconstruct()
@@ -70,85 +81,44 @@ void DynHuffTree::reconstruct()
         }
     };
 
-    std::priority_queue<QueueNode> pq;
+    std::vector<QueueNode> nodes(num_symbols_ + 1); // +1 to avoid assert for subscript out of range
+    uint16_t num_nodes = 0;
+
     uint16_t order = 0;
 
     for (uint16_t node = 0; node < tree_size; ++node) {
         const auto ch = child_[node];
         if (ch >= tree_size) {
-            QueueNode n;
+            auto& n = nodes[num_nodes++];
             n.freq = (freq_[node] + 1) >> 1;
             n.val = ch;
             n.order = order++;
-            pq.push(n);
         }
     }
-         
+    assert(num_nodes == num_symbols_);
+    std::make_heap(&nodes[0], &nodes[num_nodes]);
+
     uint16_t nodenum = 0;
     auto get_node = [&]() {
-        auto n = pq.top();
-        pq.pop();
-        child_[nodenum] = n.val;
-        freq_[nodenum] = n.freq;
+        std::pop_heap(&nodes[0], &nodes[num_nodes--]);
+        child_[nodenum] = nodes[num_nodes].val;
+        freq_[nodenum] = nodes[num_nodes].freq;
         set_parent(nodenum);
         ++nodenum;
-        return n.freq;
+        return nodes[num_nodes].freq;
     };
-    for (; pq.size() >= 2;) {
+    while (num_nodes >= 2) {
         auto l = get_node();
         auto r = get_node();
-        QueueNode n;
+        auto& n = nodes[num_nodes++];
         n.freq = l + r;
         n.val = nodenum - 2;
         n.order = order++;
-        pq.push(n);
+        std::push_heap(&nodes[0], &nodes[num_nodes]);
     }
     get_node();
-
-#if 0
-    // Collect leaves in first half and halve frequency
-    for (uint16_t node = 0, nsyms = 0; node < tree_size; ++node) {
-        if (child_[node] < tree_size)
-            continue;
-        freq_[nsyms] = (freq_[node] + 1) >> 1;
-        child_[nsyms] = child_[node];
-        ++nsyms;
-    }
-    // Reconstruct tree
-    for (uint16_t c = 0, p = num_symbols; p < tree_size; ++p, c += 2) {
-        const uint16_t f = freq_[p] = freq_[c] + freq_[c + 1];
-
-        // Find where in the tree this node should go
-        uint16_t k;
-        for (k = p - 1; f < freq_[k]; --k)
-            ;
-        k++;
-
-        #if 1
-        for (uint16_t i = p; --i >= k;) {
-            freq_[i + 1] = freq_[i];
-            child_[i + 1] = child_[i];
-        }
-        freq_[k] = f;
-        child_[k] = c;
-        #else
-        uint16_t l = (p - k) * sizeof(uint16_t);
-        memmove(&freq_[k + 1], &freq_[k], l);
-        freq_[k] = f;
-        memmove(&child_[k + 1], &child_[k], l);
-        child_[k] = c;
-        #endif
-    }
-    for (int i = 0; i < tree_size; ++i) {
-        if (nodes[i].val != child_[i] || nodes[i].freq != freq_[i]) {
-            std::println("{:3x} {:3x} {:4d} --- {:3x} {:4d}", i, nodes[i].val, nodes[i].freq, child_[i], freq_[i]);
-            exit(1);
-        }
-    }
-
-    // Reconnect parent
-    for (uint16_t i = 0; i < tree_size; ++i)
-        set_parent(i);
+#ifdef DHUFFTABLE
+    build_table();
 #endif
 }
 
@@ -163,7 +133,13 @@ void DynHuffTree::set_parent(uint16_t node)
 
 uint16_t DynHuffTree::decode(InputBitString& ibs)
 {
+#ifdef DHUFFTABLE
+    const uint16_t table_entry = ibs.peek(tbits);
+    uint16_t node = table_[table_entry];
+    ibs.drop(table_clen_[table_entry]);
+#else
     uint16_t node = child_[root];
+#endif
     while (node < tree_size)
         node = child_[node + ibs.get(1)];
     node -= tree_size;
@@ -186,7 +162,32 @@ void DynHuffTree::encode(OutputBitString& obs, uint16_t sym)
     update(sym);
 }
 
-#if 0
+#ifdef DHUFFTABLE
+#include <functional>
+void DynHuffTree::build_table()
+{
+    std::function<void(uint16_t node, uint16_t code, uint8_t len)> fill_table;
+    fill_table = [&](uint16_t node, uint16_t code, uint8_t len) {
+        const auto ch = child_[node];
+        if (len == tbits || ch >= tree_size) {
+            code <<= tbits - len;
+            for (int i = 0; i < 1 << (tbits - len); ++i, ++code) {
+                table_[code] = ch;
+                table_clen_[code] = len;
+            }
+            return;
+        }
+        code <<= 1;
+        ++len;
+        fill_table(ch, code, len);
+        fill_table(ch + 1, code | 1, len);
+    };
+    fill_table(root, 0, 0);
+    ++nbuilds;
+}
+#endif
+
+#include <print>
 void DynHuffTree::print_info()
 {
     std::println("i   ch   fr");
@@ -203,7 +204,7 @@ void DynHuffTree::print()
     do_print("", root, false);
 }
 
-void DynHuffTree::do_print(const std::string& prefix, int node, bool is_left, int level = 0)
+void DynHuffTree::do_print(const char* prefix, int node, bool is_left)
 {
     const int ch = child_[node];
     std::print("{}{} ", prefix, is_left ? "|--" : "+--");
@@ -212,11 +213,12 @@ void DynHuffTree::do_print(const std::string& prefix, int node, bool is_left, in
         return;
     }
     std::println("node {}, freq {}", node, freq_[node]);
-    const auto new_prefix = prefix + (is_left ? "|  " : "   ");
-    do_print(new_prefix, ch, true, level + 1);
-    do_print(new_prefix, ch + 1, false, level + 1);
+    const auto new_prefix = std::string(prefix) + (is_left ? "|  " : "   ");
+    do_print(new_prefix.c_str(), ch, true);
+    do_print(new_prefix.c_str(), ch + 1, false);
 }
 
+#if 0
 std::string DynHuffTree::code_str(uint16_t sym)
 {
     assert(sym < num_symbols_);

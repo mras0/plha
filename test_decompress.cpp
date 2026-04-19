@@ -31,7 +31,7 @@ void test_dir(const std::string& dir_path)
             if (e.is_directory())
                 continue;
             const auto path = e.path();
-            if (path.extension() != ".lha" && path.extension() != ".lzh")
+            if (/*path.extension() != ".lha" && */path.extension() != ".lzh")
                 continue;
             if (path.filename() == "im-tools.lha") // No CRC?
                 continue;
@@ -56,6 +56,8 @@ int main()
     //TODO: lha\tests\lha-test16-l0.lzh - Invalid header size. Extended header size -12
     try {
         //test_dir("c:/");
+        test_file("../test_decomp/glowria.lzh");
+        test_file("../test_decomp/PPDecrunch10.lzh");
         test_dir("../test_decomp");
 
         for (const auto& [f, e] : failed)
