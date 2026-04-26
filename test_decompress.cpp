@@ -50,12 +50,29 @@ void test_dir(const std::string& dir_path)
     }
 }
 
+extern void debug_stream(const std::vector<uint8_t>& data, const LhaHeader& hdr);
+void test_foo(const std::string& filename)
+{
+    static int n = 0;
+    FILE* fp = freopen(("file" + std::to_string(++n) + ".txt").c_str(), "wt", stdout);
+
+    auto data = read_file(filename);
+    LhaFileReader lha { data.data(), data.size() };
+    for (LhaHeader hdr; lha.next(hdr);) {
+        //std::println("{:5.5s} {:6d} {:6d} {}{}", (const char*)hdr.compression_method, hdr.compressed_size, hdr.original_size, hdr.dirname, hdr.filename);
+        ///(void)decompress(data, hdr);
+        debug_stream(data, hdr);
+    }
+    fclose(fp);
+}
+
 int main()
 {
     //blkstuff.lzh - Not valid
     //TODO: lha\tests\lha-test16-l0.lzh - Invalid header size. Extended header size -12
     try {
         //test_dir("c:/");
+
         test_file("../test_decomp/glowria.lzh");
         test_file("../test_decomp/PPDecrunch10.lzh");
         test_dir("../test_decomp");

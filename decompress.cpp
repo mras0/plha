@@ -149,3 +149,51 @@ std::vector<uint8_t> decompress(const std::vector<uint8_t>& data, const LhaHeade
     return res;
 }
 
+void debug_stream(const std::vector<uint8_t>& data, const LhaHeader& hdr)
+{
+    const auto method = lha_method_from_id(hdr.compression_method);
+    if (method == LHA_METHOD_UNKNOWN || method == LHA_METHOD_DIR || method == LHA_METHOD_LH1)
+        throw std::runtime_error { std::format("Unsupported compression method {:5.5s} for debug", (const char*)hdr.compression_method) };
+
+    const uint16_t dict_bits = window_bits_for_method(method);
+    HuffTable ctab { NC, 12 };
+    HuffTable ptab { uint16_t(dict_bits + 1), 8 };
+    uint16_t blocksize = 0;
+    InputBitString ibs { &data[hdr.compressed_offset], hdr.compressed_size };
+
+    uint32_t litrun = 0;
+    for (uint32_t pos = 0; pos < hdr.original_size;) {
+        if (!blocksize) {
+            blocksize = ibs.get(16);
+            HuffTable clen_table { NT, 8 };
+            clen_table.read_pt_len(ibs, TBIT, 3);
+            ctab.read_c_len(ibs, clen_table);
+            ptab.read_pt_len(ibs, dict_bits < 14 ? 4 : 5);
+        }
+        blocksize--;
+
+        const uint16_t c = ctab.decode(ibs);
+
+        if (c < 256) {
+            ++pos;
+            ++litrun;
+            continue;
+        }
+
+        if (litrun) {
+            std::println("{} lits", litrun);
+            litrun = 0;
+        }
+
+        const uint16_t p = ptab.decode(ibs);
+        if (p > 1)
+            ibs.get(p - 1);
+        const auto l = c - 256 + min_match_len;
+        std::println("l={} p={}", l, p);
+        pos += l;
+
+
+    }
+    if (litrun)
+        std::println("{} lits", litrun);
+}

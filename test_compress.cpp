@@ -288,6 +288,7 @@ int main()
     try {
         const std::string dir = "../test_comp/";
         test_obs();
+        test_file(dir + "Green Eggs and Ham.txt", LHA_METHOD_LH5);
         test_file("empty", std::vector<uint8_t> {}, LHA_METHOD_LH5);
         test_file("one char", std::vector<uint8_t> {'x'}, LHA_METHOD_LH5);
         test_file("LH1 test", std::vector<uint8_t> { 'h', 'h', 'h', 'h', 'h', 'e', 'l' }, LHA_METHOD_LH1);

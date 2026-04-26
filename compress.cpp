@@ -59,9 +59,17 @@ std::vector<uint8_t> compress(const std::vector<LzNode>& lz, LhaMethod method)
     if (method == LHA_METHOD_LH1) {
         encode_lh1(obs, lz);
     } else {
-        // TODO: Maybe it's worth doing smaller blocks once frequency of codes changes "enough"
+        // TODO: Rather than a fixed block size, check the frequency and switch if it changes "enough"
         for (size_t pos = 0; pos < lz.size();) {
-            const auto here = std::min(size_t(65535), lz.size() - pos);
+
+            // Max size is 65535, but that gives poor compression if the frequencies change
+            const auto rem = lz.size() - pos;
+            constexpr size_t max_block = 8192;
+            size_t here = rem;
+            if (here >= 2 * max_block)
+                here = max_block;
+
+
             encode_block(obs, &lz[pos], (uint16_t)here, window_bits);
             pos += here;
         }

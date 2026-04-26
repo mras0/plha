@@ -4,8 +4,157 @@
 #include <algorithm>
 #include <cstring>
 
-#define max_match_len XXX
+#if 1
 
+struct Match {
+    uint16_t len;
+    uint16_t ofs;
+};
+
+class SimpleMatchFinder {
+public:
+    explicit SimpleMatchFinder(const uint8_t* src, uint32_t len, uint32_t max_match, uint16_t window_bits) 
+        : data_ { src }
+        , len_ { len }
+        , max_match_ { max_match }
+        , window_mask_ { (1U << window_bits) - 1 }
+        , chain_(window_mask_ + 1, INT32_MIN)
+        , table_(window_mask_ + 1, INT32_MIN)
+    { 
+    }
+
+    void update(uint32_t pos)
+    {
+        if (pos + min_match_len > len_)
+            return;
+        const uint32_t key = hash(pos);
+        chain_[pos & window_mask_] = table_[key];
+        assert(table_[key] != (int32_t)pos);
+        table_[key] = pos;
+    }
+
+    Match find(uint32_t pos)
+    {
+        if (pos + min_match_len > len_)
+            return {};
+        const auto min_pos = std::max(0, int32_t(pos - window_mask_ - 1));
+        const uint8_t first_chars[3] = { data_[pos], data_[pos + 1], data_[pos + 2] };
+        uint32_t max_len = 0;
+        uint32_t match_pos = 0;
+        for (int32_t next = table_[hash(pos)]; next >= min_pos; next = chain_[next & window_mask_]) {
+            if (data_[next] != first_chars[0] || data_[next + 1] != first_chars[1] || data_[next + 2] != first_chars[2])
+                continue;
+
+            uint32_t l = 3;
+            while (pos + l < len_ && l < max_match_ && data_[next + l] == data_[pos + l])
+                ++l;
+
+            if (l > max_len) {
+                max_len = l;
+                match_pos = next;
+                if (l == max_match_)
+                    break;
+            }
+
+        }
+        return { (uint16_t)max_len, uint16_t(pos - match_pos - 1) };
+    }
+
+private:
+    const uint8_t* const data_;
+    const uint32_t len_;
+    const uint32_t max_match_;
+    const uint32_t window_mask_;
+
+    std::vector<int32_t> chain_;
+    std::vector<int32_t> table_;
+    
+    uint32_t hash(uint32_t pos)
+    {
+#if 1
+        uint32_t h = (data_[pos] << 16) | (data_[pos + 1] << 8) | data_[pos + 2];
+        return ((h * 0x1E35A7BD) >> 16) & window_mask_;
+#else
+        uint32_t hash = 5381;
+        hash = (hash * 33) ^ data_[pos + 0];
+        hash = (hash * 33) ^ data_[pos + 1];
+        hash = (hash * 33) ^ data_[pos + 2];
+        return hash & window_mask_;
+#endif
+    }
+};
+
+
+
+/*
+  170782   21538 87.3% 03-Apr-23 13:51:50  80croc.def
+  112384   42481 62.2% 03-Apr-23 13:51:50  BLOX1.DAT
+  570307  519571  8.8% 02-Apr-23 11:26:08  data.adpcm
+    3475     733 78.9% 22-Sep-24 08:14:10  Green Eggs and Ham.txt
+  267264  126757 52.5% 03-Apr-23 13:51:50  jp2_000
+   34468   17429 49.4% 03-Apr-23 13:51:50  jp2_001
+   51100   21803 57.3% 03-Apr-23 13:51:50  jp2_002
+  118784   68438 42.3% 03-Apr-23 13:51:50  MAIN.BIN
+      96      20 79.1% 04-Apr-23 06:16:18  simple.txt
+   14984    3378 77.4% 12-Apr-23 08:26:52  sprite_intro
+  245720   57664 76.5% 03-Apr-23 13:51:50  Zombies.SHP
+*/
+
+// ../test_comp/80croc.def         21493 170782 12.59% -lh5-
+// ../test_comp/BLOX1.DAT          42486 112384 37.80% -lh5-
+// ../test_comp/data.adpcm        521542 570307 91.45% -lh5-
+// ../test_comp/Green Eggs and Ham.txt    732   3475 21.06% -lh5-
+// ../test_comp/jp2_000           126840 267264 47.46% -lh5-
+// ../test_comp/jp2_001            17420  34468 50.54% -lh5-
+// ../test_comp/jp2_002            21773  51100 42.61% -lh5-
+// ../test_comp/MAIN.BIN           68011 118784 57.26% -lh5-
+// ../test_comp/simple.txt            20     96 20.83% -lh5-
+// ../test_comp/skykule.rmsh.mat      17    580 2.93% -lh5-
+// ../test_comp/sprite_intro        3369  14984 22.48% -lh5-
+// ../test_comp/Zombies.SHP        57439 245720 23.38% -lh5-
+// ../test_comp/80croc.def         22687 170782 13.28% -lh1-
+// ../test_comp/80croc.def         22349 170782 13.09% -lh4-
+// ../test_comp/80croc.def         17544 170782 10.27% -lh7-
+
+std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint32_t max_match, uint16_t window_bits, uint32_t max_matches)
+{
+    (void)max_matches;
+
+    std::vector<LzNode> res;
+
+    SimpleMatchFinder mf { data, size, max_match, window_bits };
+
+    auto literal = [&](uint32_t pos) {
+        res.push_back(LzNode { uint16_t(data[pos]) });
+    };
+
+    Match last {};
+    for (uint32_t pos = 0; pos < size;) {
+        Match m = mf.find(pos);
+        mf.update(pos);
+
+        if (m.len > last.len) {
+            if (last.len)
+                literal(pos - 1);
+            last = m;
+            ++pos;
+        } else if (!last.len) {
+            literal(pos);
+            ++pos;
+        } else {
+            res.push_back(LzNode { uint16_t(last.len - min_match_len + 256), last.ofs });
+            const auto end_pos = (pos - 1) + last.len;
+            while (++pos != end_pos)
+                mf.update(pos);
+
+            last = {};
+        }
+    }
+    return res;
+
+}
+
+#else
 // Heavily inspired by similar class in in shrinkler
 class MatchFinder {
 public:
@@ -213,3 +362,4 @@ std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint32_t max_ma
 
     return res;
 }
+#endif
