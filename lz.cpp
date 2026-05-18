@@ -125,7 +125,7 @@ std::vector<LzNode> lz_build(const uint8_t* data, uint32_t size, uint32_t max_ma
     SimpleMatchFinder mf { data, size, max_match, window_bits };
 
     auto literal = [&](uint32_t pos) {
-        res.push_back(LzNode { uint16_t(data[pos]) });
+        res.push_back(LzNode { uint16_t(data[pos]), 0 });
     };
 
     Match last {};

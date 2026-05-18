@@ -22,6 +22,7 @@ static void encode_block(OutputBitString& obs, const LzNode* lz, uint16_t size, 
     HuffCoder ccoder { c_freq };
     HuffCoder pcoder { p_freq };
 
+    // Bits for tables: 900-1700, 965 avg, 903 med
     obs.put(size, 16);
     ccoder.encode_table_c(obs);
     pcoder.encode_table_p(obs, window_bits);
@@ -52,6 +53,30 @@ static void encode_lh1(OutputBitString& obs, const std::vector<LzNode>& lz)
     }
 }
 
+#ifdef DYN_BLOCK_SIZE
+
+static HuffCoder make_coder(const LzNode* lz, uint16_t size)
+{
+    std::vector<uint32_t> c_freq(NC);
+    for (uint32_t i = 0; i < size; ++i) {
+        const auto& n = lz[i];
+        c_freq[n.code]++;
+    }
+    HuffCoder coder { c_freq };
+    return coder;
+}
+
+static size_t encode_cost(const LzNode* lz, uint16_t size, const HuffCoder& hc)
+{
+    const auto& cl = hc.code_length();
+    size_t nb = 0;
+    for (; size--; ++lz)
+        nb += cl[lz->code];
+    return nb;
+}
+#endif
+
+
 std::vector<uint8_t> compress(const std::vector<LzNode>& lz, LhaMethod method)
 {
     OutputBitString obs;
@@ -59,16 +84,36 @@ std::vector<uint8_t> compress(const std::vector<LzNode>& lz, LhaMethod method)
     if (method == LHA_METHOD_LH1) {
         encode_lh1(obs, lz);
     } else {
-        // TODO: Rather than a fixed block size, check the frequency and switch if it changes "enough"
         for (size_t pos = 0; pos < lz.size();) {
+            const auto rem = std::min(size_t(65535), lz.size() - pos);
 
-            // Max size is 65535, but that gives poor compression if the frequencies change
-            const auto rem = lz.size() - pos;
+#ifdef DYN_BLOCK_SIZE // Does not seem to really be worth the extra complexity
+            const size_t block_size = 4096;
+            size_t here = std::min(rem, block_size);
+            if (rem >= 2 * block_size) {
+                const auto base_coder = make_coder(&lz[pos], block_size);
+                for (uint32_t pos2 = pos + block_size; pos2 < rem;) {
+                    const auto rem2 = std::min(block_size, rem - pos2);
+                    const auto new_coder = make_coder(&lz[pos2], rem2);
+
+                    const auto base_cost = encode_cost(&lz[pos2], rem2, base_coder);
+                    const auto new_cost = encode_cost(&lz[pos2], rem2, new_coder);
+
+                    if (new_cost + 1000 < base_cost)
+                        break;
+                    here += rem2;
+                    pos2 += rem2;
+                }
+            } else {
+                here = rem;
+            }
+
+#else
             constexpr size_t max_block = 8192;
             size_t here = rem;
             if (here >= 2 * max_block)
                 here = max_block;
-
+#endif
 
             encode_block(obs, &lz[pos], (uint16_t)here, window_bits);
             pos += here;

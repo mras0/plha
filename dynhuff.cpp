@@ -37,7 +37,7 @@ void DynHuffTree::update(uint16_t sym)
     if (freq_[root] == max_freq)
         reconstruct();
     uint16_t node = parent_[sym + tree_size];
-    uint16_t max_node = 0;
+    [[maybe_unused]] uint16_t max_node = 0;
     do {
         uint16_t node_freq = ++freq_[node];
         uint16_t next = node + 1; // sibling
