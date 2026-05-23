@@ -55,8 +55,28 @@ public:
                 if (l == max_match_)
                     break;
             }
-
         }
+
+#ifdef USE_SPACE_DICT
+        if (pos <= window_mask_ && data_[pos] == ' ') {
+            // The dictionary is initially filled with space (' ') characters
+            // Try to find match that uses that
+            int32_t num_spaces = 1;
+            while (pos + num_spaces < len_ && data_[pos + num_spaces] == ' ' && num_spaces < (int32_t)max_match_)
+                ++num_spaces;
+
+            for (int32_t mp = std::min((int32_t)pos - 1, (int32_t)max_match_ - 1); mp >= -num_spaces; --mp) {
+                uint32_t l = mp < 0 ? -mp : 0;
+                while (pos + l < len_ && data_[pos + l] == data_[mp + l])
+                    ++l;
+                if (l > max_len && l > min_match_len) {
+                    match_pos = mp;
+                    max_len = l;
+                }
+            }
+        }
+#endif
+
         return { (uint16_t)max_len, uint16_t(pos - match_pos - 1) };
     }
 

@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+//#define USE_SPACE_DICT // Use initially space filled dict (not worth it)
+
 struct LzNode {
     uint16_t code;
     uint16_t ofs;

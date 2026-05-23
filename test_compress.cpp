@@ -21,8 +21,13 @@ void test_lz(const uint8_t* data, uint32_t size, const std::vector<LzNode>& lz)
         }
         uint32_t len = n.code - 256 + min_match_len;
         uint32_t ofs = n.ofs + 1;
+#ifdef USE_SPACE_DICT
+        for (; ofs > out.size() && len; --len)
+            out.push_back(' ');
+#else
         if (ofs > out.size())
             throw std::runtime_error {std::format("Invalid offset in LZ stream {} (max {})", ofs, out.size()) };
+#endif
         while (len--)
             out.push_back(out[out.size() - ofs]);
     }
@@ -282,7 +287,6 @@ Tweaked match length cost:
 ../test_comp/Green Eggs and Ham.txt    714   3475 20.55% -lh7-
 */
 
-#include "huffcoder.h"
 int main()
 {
     try {
@@ -292,6 +296,7 @@ int main()
         test_file("empty", std::vector<uint8_t> {}, LHA_METHOD_LH5);
         test_file("one char", std::vector<uint8_t> {'x'}, LHA_METHOD_LH5);
         test_file("LH1 test", std::vector<uint8_t> { 'h', 'h', 'h', 'h', 'h', 'e', 'l' }, LHA_METHOD_LH1);
+        test_file("init dict", std::vector<uint8_t> { 'y', ' ', ' ', ' ', ' ', 'y', 'x' }, LHA_METHOD_LH5);
         // test_recompress();
         test_dir(dir, LHA_METHOD_LH5);
         test_file(dir + "80croc.def", LHA_METHOD_LH1);

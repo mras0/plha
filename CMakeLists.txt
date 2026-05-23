@@ -41,23 +41,27 @@ add_library(plha_lib STATIC
     compress.cpp compress.h
     )
 
-add_executable(test_decompress
-    test_decompress.cpp
-    )
-target_link_libraries(test_decompress plha_lib)
+enable_testing()
+set(_BUILDCFG "")
+if (MSVC)
+    set(_BUILDCFG "--build-config \"$<CONFIGURATION>\"")
+endif()
+add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --force-new-ctest-process --output-on-failure ${_BUILDCFG})
+macro(plha_test name)
+    set(_name "test_${name}")
+    add_executable(${_name}
+        ${_name}.cpp
+        )
+    target_link_libraries(${_name} plha_lib)
+    add_test(${_name} ${_name})
+    add_dependencies(check ${_name})
+endmacro()
 
-add_executable(test_compress
-    test_compress.cpp
-    )
-target_link_libraries(test_compress plha_lib)
-
-add_executable(test_archive
-    test_archive.cpp
-    )
-target_link_libraries(test_archive plha_lib)
+plha_test(decompress)
+plha_test(compress)
+plha_test(archive)
 
 add_executable(plha
     main.cpp
     )
 target_link_libraries(plha plha_lib)
-
