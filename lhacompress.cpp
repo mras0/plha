@@ -5,7 +5,7 @@
 #include "crc16.h"
 #include <cstring>
 
-void lha_compress(std::vector<uint8_t>& output, const std::vector<uint8_t>& uncompressed_data, const std::string& dirname, const std::string& filename, int64_t modtime, const LhaCompressOptions& options)
+void lha_compress(std::vector<uint8_t>& output, const std::vector<uint8_t>& uncompressed_data, const std::string& dirname, const std::string& filename, int64_t modtime, uint32_t protect, const LhaCompressOptions& options)
 {
     auto method = options.method;
     auto compressed_data = compress(uncompressed_data.data(), (uint32_t)uncompressed_data.size(), method);
@@ -18,6 +18,7 @@ void lha_compress(std::vector<uint8_t>& output, const std::vector<uint8_t>& unco
     hdr.dirname = dirname;
     hdr.level = 1;
     hdr.os = lha_os_amiga;
+    hdr.protect = protect;
     hdr.compressed_size = (uint32_t)compressed_data.size();
     hdr.original_size = (uint32_t)uncompressed_data.size();
     hdr.crc = crc16(uncompressed_data.data(), uncompressed_data.size());

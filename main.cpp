@@ -9,6 +9,7 @@
 #include "lhafile.h"
 #include "decompress.h"
 #include "lhacompress.h"
+#include "attrs.h"
 
 // https://web.archive.org/web/20110817112842/http://homepage1.nifty.com/dangan/en/Content/Program/Java/jLHA/Notes/Notes.html
 
@@ -171,21 +172,36 @@ enum class UpdateMode {
 
 static int add_or_update(const Options& opts, int argc, char** argv, UpdateMode mode)
 {
-    const auto files = glob_all(opts, argc, argv);
-    if (files.empty()) {
+    const auto glob_files = glob_all(opts, argc, argv);
+    if (glob_files.empty()) {
         std::println("No files found matching pattern(s)");
         return 1;
     }
 
     ArchiveInfo arc = read_existing_archive(opts.archive);
     std::vector<const LhaHeader*> keep;
-    if (mode != UpdateMode::add) {
+    if (mode != UpdateMode::add) { // When adding all files are kept
         for (const auto& [_, hdr] : arc.files)
             keep.push_back(&hdr);
     }
+    struct FileToAdd {
+        fs::path path;
+        std::string dirname;
+        FileAttributes attrs;
+        time_t modtime;
+    };
+    std::vector<FileToAdd> files;
 
-    for (const auto& [_, p] : files) {
-        const auto fullname = p.dirname + p.filename;
+    for (const auto& [de, p] : glob_files) {
+        FileToAdd f {};
+        f.path = de.path();
+        f.modtime = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(de.last_write_time()));
+        f.dirname = p.dirname;
+        f.attrs = attrs_get(de.path().c_str());
+        if (f.attrs.name.empty())
+            f.attrs.name = p.filename;
+
+        const auto fullname = p.dirname + f.attrs.name;
         auto it = arc.files.find(fullname);
         const bool found = it != arc.files.end();
         switch (mode) {
@@ -204,6 +220,8 @@ static int add_or_update(const Options& opts, int argc, char** argv, UpdateMode 
             std::erase(keep, &it->second);
             arc.files.erase(it);
         }
+
+        files.emplace_back(std::move(f));
     }
 
     print_header(opts);
@@ -213,15 +231,18 @@ static int add_or_update(const Options& opts, int argc, char** argv, UpdateMode 
         for (const auto k : keep) {
             auto file_data = &arc.data[k->header_offset];
             new_data.insert(new_data.end(), file_data, file_data + k->compressed_offset + k->compressed_size - k->header_offset);
-            //print_file_info(opts, *k);
         }
         arc.data.swap(new_data);
     }
-
-    for (const auto& [de, p] : files) {
-        auto modtime = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(de.last_write_time()));
+    for (const auto& f : files) {
         const auto start_pos = arc.data.size();
-        lha_compress(arc.data, read_file(de.path().string()), p.dirname, p.filename, modtime, opts.compression_options);
+
+        auto name = f.attrs.name;
+        if (!f.attrs.comment.empty()) {
+            name += '\0';
+            name += f.attrs.comment;
+        }
+        lha_compress(arc.data, read_file(f.path.string()), f.dirname, name, f.modtime, f.attrs.protect, opts.compression_options);
 
         LhaFileReader fr { &arc.data[start_pos], arc.data.size() - start_pos };
         LhaHeader hdr;
@@ -272,6 +293,53 @@ static int list_archive(const Options& opts, int argc, char** argv)
     print_footer(opts);
     return 0;
 }
+
+static std::string os_string(uint8_t os)
+{
+    switch (os) {
+    case 0:
+        return "Unknown";
+    case lha_os_amiga: // 'A'
+        return "Amiga";
+    case 'M':
+        return "MS-DOS";
+    case 'U':
+        return "Unix";
+    default:
+        return std::format("0x{:02X}", os);
+    }
+}
+
+static int list_verbose(const Options& opts, int argc, char** argv)
+{
+    std::println("Original  Packed  Ratio Date      Time       Atts   Method CRC  Host OS  L");
+    std::println("-------- ------- ------ --------- -------- -------- ------ ---- -------- ---");
+
+    foreach_archive_file(opts, argc, argv, [&](const std::vector<uint8_t>&, const LhaHeader& hdr) {
+        std::println("{:8d} {:7d} {:5.1f}% {} {} {} {:6s} {:04X} {:8} {}\n{}{}",
+            hdr.original_size,
+            hdr.compressed_size,
+            calc_ratio(hdr.original_size, hdr.compressed_size),
+            lha_date_str(hdr.mod_date),
+            lha_time_str(hdr.mod_time),
+            protect_string(hdr.protect),
+            std::string(hdr.compression_method, hdr.compression_method + 5),
+            hdr.crc,
+            os_string(hdr.os),
+            hdr.level,
+            hdr.dirname, hdr.filename.c_str());
+
+        running_total.update(hdr);
+    });
+    std::println("-------- ------- ------ --------- -------- {:5} file{}", running_total.num_files, running_total.num_files == 1 ? "" : "s");
+    std::println("{:8d} {:7d} {:5.1f}%",
+        running_total.total_orig,
+        running_total.total_packed,
+        calc_ratio(running_total.total_orig, running_total.total_packed));
+    
+    return 0;
+}
+
 
 static int test_archive(const Options& opts, int argc, char** argv)
 {
@@ -324,6 +392,7 @@ static const struct {
     { 'r', &replace_archive, "Replace in archive" },
     { 't', &test_archive, "Test archive" },
     { 'u', &update_archive, "Update archive" },
+    { 'v', &list_verbose, "Verbose listing" },
     { 'x', &extract_with_path, "Extract (with path)" },
 };
 

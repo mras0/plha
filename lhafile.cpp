@@ -1,5 +1,6 @@
 #include "lhafile.h"
 #include "util.h"
+#include "lhaconsts.h"
 #include <stdexcept>
 #include <print>
 #include <algorithm>
@@ -27,7 +28,7 @@ bool LhaFileReader::next(LhaHeader& hdr)
     // Interpretation depends on version
     hdr.mod_time = get_u16();
     hdr.mod_date = get_u16();
-    skip(1); // Reserved (file attribute)
+    hdr.protect = get_u8(); // Reserved (file attribute)
     skip(1); // Header level
     switch (hdr.level) {
     case 0:
@@ -47,6 +48,8 @@ bool LhaFileReader::next(LhaHeader& hdr)
     default:
         throw std::runtime_error { std::format("Header level {:d} not supported", hdr.level) };
     }
+    if (hdr.os && hdr.os != lha_os_amiga)
+        hdr.protect = 0;
     hdr.compressed_offset = pos_;
     skip(hdr.compressed_size);
     return true;
@@ -207,6 +210,9 @@ void lha_header_append(std::vector<uint8_t>& data, const LhaHeader& hdr)
     if (hdr.filename.size() > 255 - 27)
         throw std::runtime_error { std::format("Filename too long (should be in extended header)") };
 
+    if (hdr.protect >= 0x100)
+        throw std::runtime_error { std::format("Protection flags {:X} not supported yet", hdr.protect) };
+
     uint32_t ext_size = 0;
     if (!hdr.dirname.empty())
         ext_size += 3 + (uint32_t)hdr.dirname.size();
@@ -234,7 +240,7 @@ void lha_header_append(std::vector<uint8_t>& data, const LhaHeader& hdr)
     // N.B. different for level 2 headers
     put_u16(hdr.mod_time);
     put_u16(hdr.mod_date);
-    put_u8(0x20); // attributes (?!)
+    put_u8(static_cast<uint8_t>(hdr.protect));
     put_u8(hdr.level);
     put_u8((uint8_t)hdr.filename.size());
     data.insert(data.end(), hdr.filename.begin(), hdr.filename.end());

@@ -11,6 +11,6 @@ struct LhaCompressOptions {
     uint32_t max_ratio_percent = 97;
 };
 
-void lha_compress(std::vector<uint8_t>& output, const std::vector<uint8_t>& uncompressed_data, const std::string& dirname, const std::string& filename, int64_t modtime, const LhaCompressOptions& options);
+void lha_compress(std::vector<uint8_t>& output, const std::vector<uint8_t>& uncompressed_data, const std::string& dirname, const std::string& filename, int64_t modtime, uint32_t protect, const LhaCompressOptions& options);
 
 #endif

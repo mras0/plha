@@ -39,6 +39,7 @@ add_library(plha_lib STATIC
     lz.cpp lz.h
     huffcoder.cpp huffcoder.h
     compress.cpp compress.h
+    attrs.cpp attrs.h
     )
 
 enable_testing()

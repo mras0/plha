@@ -13,6 +13,7 @@ struct LhaHeader {
     uint8_t compression_method[5];
     uint32_t compressed_size;
     uint32_t original_size;
+    uint32_t protect;
     // In DOS date format
     uint16_t mod_time;
     uint16_t mod_date;

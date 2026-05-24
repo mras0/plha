@@ -63,7 +63,7 @@ void test_max_ratio_percent()
     std::vector<uint8_t> orig_data;
     for (int i = 0; i < 256; ++i)
         orig_data.push_back(static_cast<uint8_t>(i));
-    lha_compress(arc_data, orig_data, "", "foo", 1234, options);
+    lha_compress(arc_data, orig_data, "", "foo", 1234, 0, options);
     LhaFileReader reader { arc_data.data(), arc_data.size() };
     LhaHeader rhdr;
     CHECK_EQ(reader.next(rhdr), true);
@@ -84,9 +84,10 @@ int main()
         auto orig_data = read_file("../" + fname);
         const auto method = LHA_METHOD_LH5;
         const uint32_t modtime = 1774864640;
+        const uint32_t protect = 0xf7;
         LhaCompressOptions options {};
         options.method = method;
-        lha_compress(arc_data, orig_data, dirname, fname, modtime, options);
+        lha_compress(arc_data, orig_data, dirname, fname, modtime, protect, options);
 
         LhaFileReader reader { arc_data.data(), arc_data.size() };
         LhaHeader rhdr;
@@ -95,6 +96,7 @@ int main()
         CHECK_EQ(rhdr.dirname, dirname);
         CHECK_EQ(rhdr.original_size, orig_data.size());
         CHECK_EQ(rhdr.os, lha_os_amiga);
+        CHECK_EQ(rhdr.protect, protect);
         CHECK_EQ((int)lha_method_from_id(rhdr.compression_method), (int)method);
 
         auto decompressed = decompress(arc_data, rhdr);
