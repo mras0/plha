@@ -55,13 +55,28 @@ void test_split_path()
     CHECK_EQ(PC("dir/name/", "blah"), split_path("dir\\name\\blah"));
 }
 
+void test_max_ratio_percent()
+{
+    std::vector<uint8_t> arc_data;
+    LhaCompressOptions options {};
+    options.method = LHA_METHOD_LH6;
+    std::vector<uint8_t> orig_data;
+    for (int i = 0; i < 256; ++i)
+        orig_data.push_back(static_cast<uint8_t>(i));
+    lha_compress(arc_data, orig_data, "", "foo", 1234, options);
+    LhaFileReader reader { arc_data.data(), arc_data.size() };
+    LhaHeader rhdr;
+    CHECK_EQ(reader.next(rhdr), true);
+    CHECK_EQ((int)lha_method_from_id(rhdr.compression_method), (int)LHA_METHOD_LH0);
+}
+
 int main()
 {
     try {
         test_filename_cmp();
         test_wildcard_match();
         test_split_path();
-
+        test_max_ratio_percent();
 
         std::vector<uint8_t> arc_data;
         const std::string fname = "main.cpp";
@@ -69,7 +84,9 @@ int main()
         auto orig_data = read_file("../" + fname);
         const auto method = LHA_METHOD_LH5;
         const uint32_t modtime = 1774864640;
-        lha_compress(arc_data, orig_data, dirname, fname, method, modtime);
+        LhaCompressOptions options {};
+        options.method = method;
+        lha_compress(arc_data, orig_data, dirname, fname, modtime, options);
 
         LhaFileReader reader { arc_data.data(), arc_data.size() };
         LhaHeader rhdr;
@@ -85,7 +102,7 @@ int main()
 
         CHECK_EQ(reader.next(rhdr), false);
 
-        write_file("test.lha", arc_data);
+        //write_file("test.lha", arc_data);
 
     } catch (const std::exception& e) {
         std::println("{}", e.what());

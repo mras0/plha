@@ -2,6 +2,9 @@
 #include <filesystem>
 #include <map>
 #include <chrono>
+#include <algorithm>
+#include <cstring>
+#include <cassert>
 #include "fileio.h"
 #include "lhafile.h"
 #include "decompress.h"
@@ -18,7 +21,7 @@ struct Options {
     const char* archive;
     bool quiet;
     bool recursive;
-    LhaMethod compression_method = LHA_METHOD_LH5;
+    LhaCompressOptions compression_options;
 };
 
 template<typename F>
@@ -56,8 +59,8 @@ static void print_header(const Options& opts)
 {
     if (opts.quiet)
         return;
-    std::println("Original  Packed Ratio Method Date      Time     Name");
-    std::println("-------- ------- ----- ------ --------- -------- ------------");
+    std::println("Original  Packed  Ratio Method Date      Time     Name");
+    std::println("-------- ------- ------ ------ --------- -------- ------------");
 }
 
 static void print_footer(const Options& opts)
@@ -65,7 +68,7 @@ static void print_footer(const Options& opts)
     if (opts.quiet)
         return;
     std::println("-------------------------------------------------------------");
-    std::println("{:8d} {:7d} {:4.1f}% {:25s} {}, {} files",
+    std::println("{:8d} {:7d} {:5.1f}% {:25s} {}, {} files",
         running_total.total_orig,
         running_total.total_packed,
         calc_ratio(running_total.total_orig, running_total.total_packed),
@@ -78,7 +81,7 @@ static void print_file_info(const Options& opts, const LhaHeader& hdr)
 {
     if (opts.quiet)
         return;
-    std::println("{:8d} {:7d} {:4.1f}% {:6s} {} {} {}{}",
+    std::println("{:8d} {:7d} {:5.1f}% {:6s} {} {} {}{}",
         hdr.original_size,
         hdr.compressed_size,
         calc_ratio(hdr.original_size, hdr.compressed_size),
@@ -211,7 +214,7 @@ static int add_or_update(const Options& opts, int argc, char** argv, bool update
     for (const auto& [de, p] : files) {
         auto modtime = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(de.last_write_time()));
         const auto start_pos = arc.data.size();
-        lha_compress(arc.data, read_file(de.path().string()), p.dirname, p.filename, opts.compression_method, modtime);
+        lha_compress(arc.data, read_file(de.path().string()), p.dirname, p.filename, modtime, opts.compression_options);
 
         LhaFileReader fr { &arc.data[start_pos], arc.data.size() - start_pos };
         LhaHeader hdr;
@@ -293,22 +296,66 @@ static int extract_without_path(const Options& opts, int argc, char** argv)
     return extract(opts, argc, argv, false);
 }
 
+static const struct {
+    char command_char;
+    dispatch_function dispatch;
+    const char* description;
+} command_table[] = {
+    { 'a', &add_archive, "Add to archive" },
+    { 'e', &extract_without_path, "Extract (without path)" },
+    { 'l', &list_archive, "List archive" },
+    { 't', &test_archive, "Test archive" },
+    { 'u', &update_archive, "Update archive" },
+    { 'x', &extract_with_path, "Extract (with path)" },
+};
+
+struct OptionHandler {
+    using PlainType = void (*)(Options& opts);
+    using NumType = void (*)(Options& opts, uint32_t number);
+
+    constexpr OptionHandler(PlainType handler)
+        : type { TYPE_PLAIN }
+        , plain { handler }
+    {
+    }
+    constexpr OptionHandler(NumType handler)
+        : type { TYPE_NUM }
+        , num { handler }
+    {
+    }
+
+    enum {
+        TYPE_PLAIN,
+        TYPE_NUM,
+    } type;
+    union {
+        PlainType plain;
+        NumType num;
+    };
+};
+
+static const struct {
+    const char* opt;
+    OptionHandler handler;
+    const char* description;
+} option_table[] = {
+    { "q", +[](Options& opts) { opts.quiet = true; }, "Quiet" },
+    { "r", +[](Options& opts) { opts.recursive = true; }, "Recursive" },
+    { "0", +[](Options& opts) { opts.compression_options.method = LHA_METHOD_LH0; }, "Use -lh0- (no compression)" },
+    { "1", +[](Options& opts) { opts.compression_options.method = LHA_METHOD_LH1; }, "Use -lh1-" },
+    { "4", +[](Options& opts) { opts.compression_options.method = LHA_METHOD_LH4; }, "Use -lh4-" },
+    { "5", +[](Options& opts) { opts.compression_options.method = LHA_METHOD_LH5; }, "Use -lh5-" },
+    { "6", +[](Options& opts) { opts.compression_options.method = LHA_METHOD_LH6; }, "Use -lh6-" },
+    { "7", +[](Options& opts) { opts.compression_options.method = LHA_METHOD_LH7; }, "Use -lh7-" },
+    { "Qr", +[](Options& opts, uint32_t num) { opts.compression_options.max_ratio_percent = num; }, "Max. compressed ratio (%)" },
+};
+
 static dispatch_function parse_command(const char* arg)
 {
     if (arg[1] == 0) {
-        switch (arg[0]) {
-        case 'a':
-            return &add_archive;
-        case 'e':
-            return &extract_without_path;
-        case 'l':
-            return &list_archive;
-        case 't':
-            return &test_archive;
-        case 'u':
-            return &update_archive;
-        case 'x':
-            return &extract_with_path;
+        for (const auto& cmd : command_table) {
+            if (arg[0] == cmd.command_char)
+                return cmd.dispatch;
         }
     }
     throw std::runtime_error { std::format("Unknown command {:?}", arg) };
@@ -331,33 +378,28 @@ static bool parse_options(Options& opts, int& argc, char**& argv)
             continue;
         }
 
-        for (const char* a = &arg[1]; *a; ++a) {
-            switch (*a) {
-            case 'q':
-                opts.quiet = true;
-                break;
-            case 'r':
-                opts.recursive = true;
-                break;
-            case '1':
-                opts.compression_method = LHA_METHOD_LH1;
-                break;
-            case '4':
-                opts.compression_method = LHA_METHOD_LH4;
-                break;
-            case '5':
-                opts.compression_method = LHA_METHOD_LH5;
-                break;
-            case '6':
-                opts.compression_method = LHA_METHOD_LH6;
-                break;
-            case '7':
-                opts.compression_method = LHA_METHOD_LH7;
-                break;
-            default:
+        for (const char* a = &arg[1]; *a;) {
+            auto opt = std::find_if(std::begin(option_table), std::end(option_table), [a](const auto& o) {
+                return std::strncmp(a, o.opt, std::strlen(o.opt)) == 0;
+            });
+            if (opt == std::end(option_table)) {
                 std::println("Unknown option {} in {:?}", *a, arg);
                 return false;
             }
+            a += strlen(opt->opt);
+            if (opt->handler.type == OptionHandler::TYPE_PLAIN) {
+                opt->handler.plain(opts);
+                continue;
+            }
+            assert(opt->handler.type == OptionHandler::TYPE_NUM);
+            char* end = nullptr;
+            const auto num = (uint32_t)strtoul(a, &end, 10);
+            if (!end || a == end) {
+                std::println("Expected number got \"{}\" in {:?} for {}", a, arg, opt->description);
+                return false;
+            }
+            a = end;
+            opt->handler.num(opts, num);            
         }
     }
     return true;
@@ -369,7 +411,34 @@ int main(int argc, char* argv[])
         Options opts {};
         const char* prog_name = argv[0];
         if (!parse_options(opts, argc, argv) || !opts.action || !opts.archive) {
-            std::println("Usage: {} [-<options>] <command> <archive> [files...]", prog_name);
+            static constexpr size_t arg_width = 3;
+            static constexpr size_t desc_width = 30;
+
+            std::println("Usage: {} [-<option(s)>] <command> <archive> [files...]", prog_name);
+            std::println("");
+            std::println("Commands:");
+            for (size_t i = 0; i < std::size(command_table); i += 2) {
+                auto pr_cmd = [](size_t index) {
+                    std::print("  {:{}} {:{}}", command_table[index].command_char, arg_width, command_table[index].description, desc_width);
+                };
+                pr_cmd(i);
+                if (i + 1 != std::size(command_table))
+                    pr_cmd(i + 1);
+                std::println("");
+            }
+            std::println("");
+            std::println("Options:");
+            for (size_t i = 0; i < std::size(option_table); i += 2) {
+                auto pr_cmd = [](size_t index) {
+                    static_assert(arg_width > 1);
+                    std::print("  -{:{}} {:{}}", option_table[index].opt, arg_width - 1, option_table[index].description, desc_width);
+                };
+                pr_cmd(i);
+                if (i + 1 != std::size(option_table))
+                    pr_cmd(i + 1);
+                std::println("");
+            }
+
             return 1;
         }
         opts.action(opts, argc, argv);
