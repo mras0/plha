@@ -24,15 +24,6 @@ struct Options {
     LhaCompressOptions compression_options;
 };
 
-template<typename F>
-void foreach_archive_file(const std::string& filename, F callback)
-{
-    auto data = read_file(filename);
-    LhaFileReader lha { data.data(), data.size() };
-    for (LhaHeader hdr; lha.next(hdr);)
-        callback(data, hdr);
-}
-
 struct RunningTotal {
     uint32_t total_orig = 0;
     uint32_t total_packed = 0;
@@ -172,7 +163,13 @@ static ArchiveInfo read_existing_archive(const std::string& filename)
     return arc;
 }
 
-static int add_or_update(const Options& opts, int argc, char** argv, bool update)
+enum class UpdateMode {
+    add,
+    replace,
+    update,
+};
+
+static int add_or_update(const Options& opts, int argc, char** argv, UpdateMode mode)
 {
     const auto files = glob_all(opts, argc, argv);
     if (files.empty()) {
@@ -182,7 +179,7 @@ static int add_or_update(const Options& opts, int argc, char** argv, bool update
 
     ArchiveInfo arc = read_existing_archive(opts.archive);
     std::vector<const LhaHeader*> keep;
-    if (update) {
+    if (mode != UpdateMode::add) {
         for (const auto& [_, hdr] : arc.files)
             keep.push_back(&hdr);
     }
@@ -191,9 +188,19 @@ static int add_or_update(const Options& opts, int argc, char** argv, bool update
         const auto fullname = p.dirname + p.filename;
         auto it = arc.files.find(fullname);
         const bool found = it != arc.files.end();
-        if (found != update)
-            throw std::runtime_error { std::format("{} {} in archive {:?}", fullname, update ? "doesn't exist" : "already exists", opts.archive) };
-        if (update) {
+        switch (mode) {
+        case UpdateMode::add:
+            if (found)
+                throw std::runtime_error { std::format("{} already exists in archive {:?}", fullname, opts.archive) };
+            break;
+        case UpdateMode::update:
+            if (!found)
+                throw std::runtime_error { std::format("{} doesn't exist in archive {:?}", fullname, opts.archive) };
+            break;
+        case UpdateMode::replace:
+            break;
+        }
+        if (found) {
             std::erase(keep, &it->second);
             arc.files.erase(it);
         }
@@ -201,7 +208,7 @@ static int add_or_update(const Options& opts, int argc, char** argv, bool update
 
     print_header(opts);
 
-    if (update) {
+    if (mode != UpdateMode::add) {
         std::vector<uint8_t> new_data;
         for (const auto k : keep) {
             auto file_data = &arc.data[k->header_offset];
@@ -232,20 +239,34 @@ static int add_or_update(const Options& opts, int argc, char** argv, bool update
 
 static int add_archive(const Options& opts, int argc, char** argv)
 {
-    return add_or_update(opts, argc, argv, false);
+    return add_or_update(opts, argc, argv, UpdateMode::add);
 }
 
 static int update_archive(const Options& opts, int argc, char** argv)
 {
-    return add_or_update(opts, argc, argv, true);
+    return add_or_update(opts, argc, argv, UpdateMode::update);
+}
+
+static int replace_archive(const Options& opts, int argc, char** argv)
+{
+    return add_or_update(opts, argc, argv, UpdateMode::replace);
+}
+
+template <typename F>
+void foreach_archive_file(const Options& opts, int argc, char** argv, F callback)
+{
+    auto lha_file = read_file(opts.archive);
+    LhaFileReader lha { lha_file.data(), lha_file.size() };
+    for (LhaHeader hdr; lha.next(hdr);) {
+        if (check_included(opts, hdr, argc, argv))
+            callback(lha_file, hdr);
+    }
 }
 
 static int list_archive(const Options& opts, int argc, char** argv)
 {
     print_header(opts);
-    foreach_archive_file(opts.archive, [&](const std::vector<uint8_t>&, const LhaHeader& hdr) {
-        if (!check_included(opts, hdr, argc, argv))
-            return;
+    foreach_archive_file(opts, argc, argv, [&](const std::vector<uint8_t>&, const LhaHeader& hdr) {
         print_file_info(opts, hdr);
     });
     print_footer(opts);
@@ -254,9 +275,7 @@ static int list_archive(const Options& opts, int argc, char** argv)
 
 static int test_archive(const Options& opts, int argc, char** argv)
 {
-    foreach_archive_file(opts.archive, [&](const std::vector<uint8_t>& lha_file, const LhaHeader& hdr) {
-        if (!check_included(opts, hdr, argc, argv))
-            return;
+    foreach_archive_file(opts, argc, argv, [&](const std::vector<uint8_t>& lha_file, const LhaHeader& hdr) {
         if (!opts.quiet) {
             std::print("{}{} ... ", hdr.dirname, hdr.filename.c_str());
             fflush(stdout);
@@ -271,9 +290,7 @@ static int test_archive(const Options& opts, int argc, char** argv)
 static int extract(const Options& opts, int argc, char** argv, bool with_path)
 {
     print_header(opts);
-    foreach_archive_file(opts.archive, [&](const std::vector<uint8_t>& lha_file, const LhaHeader& hdr) {
-        if (!check_included(opts, hdr, argc, argv))
-            return;
+    foreach_archive_file(opts, argc, argv, [&](const std::vector<uint8_t>& lha_file, const LhaHeader& hdr) {
         print_file_info(opts, hdr);
         if (with_path && !hdr.dirname.empty())
             fs::create_directories(hdr.dirname);
@@ -304,6 +321,7 @@ static const struct {
     { 'a', &add_archive, "Add to archive" },
     { 'e', &extract_without_path, "Extract (without path)" },
     { 'l', &list_archive, "List archive" },
+    { 'r', &replace_archive, "Replace in archive" },
     { 't', &test_archive, "Test archive" },
     { 'u', &update_archive, "Update archive" },
     { 'x', &extract_with_path, "Extract (with path)" },
