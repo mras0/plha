@@ -26,6 +26,8 @@ struct LhaHeader {
 std::string lha_date_str(uint16_t t);
 std::string lha_time_str(uint16_t t);
 
+int64_t unix_time_from_dos_time(uint16_t date, uint16_t time);
+
 void lha_header_set_dos_time(LhaHeader& hdr, int64_t t);
 void lha_header_convert_unix_to_dos_time(LhaHeader& hdr);
 

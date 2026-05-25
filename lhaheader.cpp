@@ -30,11 +30,11 @@ std::string lha_time_str(uint16_t t)
     return std::format("{:02d}:{:02d}:{:02d}", t >> 11, (t >> 5) & 0x3f, 2 * (t & 0x1f));
 }
 
+static constexpr int64_t seconds_per_day = 24 * 60 * 60;
+static constexpr int64_t epoch_offset = -2440588 * seconds_per_day; // 2440588 is JDN for 1970-01-01
+
 void lha_header_set_dos_time(LhaHeader& hdr, int64_t t)
 {
-    static constexpr int64_t seconds_per_day = 24 * 60 * 60;
-    static constexpr int64_t epoch_offset = -2440588 * seconds_per_day; // 2440588 is JDN for 1970-01-01
-
     constexpr auto y = 4716;
     constexpr auto j = 1401;
     constexpr auto m = 2;
@@ -65,6 +65,23 @@ void lha_header_set_dos_time(LhaHeader& hdr, int64_t t)
 
     hdr.mod_time = (uint16_t)(hrs << 11 | min << 5 | sec >> 1);
     hdr.mod_date = (uint16_t)((Y - 1980) << 9 | M << 5 | D);
+}
+
+int64_t unix_time_from_dos_time(uint16_t date, uint16_t time)
+{
+    const auto D = (date & 0x1f);
+    const auto M = ((date >> 5) & 15);
+    const auto Y = 1980 + (date >> 9);
+    const auto h = time >> 11;
+    const auto m = (time >> 5) & 0x3f;
+    const auto s = 2 * (time & 0x1f);
+
+    // Julian day
+    const int A = (M - 14) / 12;
+    const auto J = 1461 * (Y + 4800 + A) / 4 + 367 * (M - 2 - 12 * A) / 12 - 3 * ((Y + 4900 + A) / 100) / 4 + D - 32075;
+
+    // N.B. the julian day starts at noon (12:00)
+    return epoch_offset + J * seconds_per_day + (h * 60 + m) * 60 + s;
 }
 
 void lha_header_convert_unix_to_dos_time(LhaHeader& hdr)

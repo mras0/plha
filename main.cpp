@@ -1,7 +1,6 @@
 #include <print>
 #include <filesystem>
 #include <map>
-#include <chrono>
 #include <algorithm>
 #include <cstring>
 #include <cassert>
@@ -188,14 +187,12 @@ static int add_or_update(const Options& opts, int argc, char** argv, UpdateMode 
         fs::path path;
         std::string dirname;
         FileAttributes attrs;
-        time_t modtime;
     };
     std::vector<FileToAdd> files;
 
     for (const auto& [de, p] : glob_files) {
         FileToAdd f {};
         f.path = de.path();
-        f.modtime = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(de.last_write_time()));
         f.dirname = p.dirname;
         f.attrs = attrs_get(de.path().c_str());
         if (f.attrs.name.empty())
@@ -242,7 +239,7 @@ static int add_or_update(const Options& opts, int argc, char** argv, UpdateMode 
             name += '\0';
             name += f.attrs.comment;
         }
-        lha_compress(arc.data, read_file(f.path.string()), f.dirname, name, f.modtime, f.attrs.protect, opts.compression_options);
+        lha_compress(arc.data, read_file(f.path.string()), f.dirname, name, f.attrs.modtime, f.attrs.protect, opts.compression_options);
 
         LhaFileReader fr { &arc.data[start_pos], arc.data.size() - start_pos };
         LhaHeader hdr;
@@ -365,7 +362,17 @@ static int extract(const Options& opts, int argc, char** argv, bool with_path)
         if (lha_method_from_id(hdr.compression_method) == LHA_METHOD_DIR)
             return;
         const auto data = decompress(lha_file, hdr);
-        write_file((with_path ? hdr.dirname : "") + hdr.filename, data);
+        const auto dirname = with_path ? hdr.dirname : "";
+        FileAttributes attr {};
+        if (auto pos = hdr.filename.find_first_of('\0'); pos < hdr.filename.size() - 1) {
+            attr.name = hdr.filename.substr(0, pos);
+            attr.comment = hdr.filename.substr(pos + 1);
+        } else {
+            attr.name = hdr.filename;
+        }
+        attr.protect = hdr.protect;
+        attr.modtime = unix_time_from_dos_time(hdr.mod_date, hdr.mod_time);
+        write_with_attributes(data, dirname, attr);
     });
     print_footer(opts);
     return 0;

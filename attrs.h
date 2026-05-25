@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 static constexpr uint32_t PROTECT_MASK_D = 1 << 0; // Delete (not allowed)
 static constexpr uint32_t PROTECT_MASK_E = 1 << 1; // Execute (not allowed)
@@ -17,6 +18,7 @@ struct FileAttributes {
     std::string name;
     std::string comment;
     uint32_t protect;
+    int64_t modtime;
 };
 
 std::string protect_string(uint32_t prot);
@@ -26,5 +28,7 @@ FileAttributes attrs_get(const wchar_t* path);
 #else
 FileAttributes attrs_get(const char* path);
 #endif
+
+void write_with_attributes(const std::vector<uint8_t>& data, const std::string& dirname, const FileAttributes& attributes);
 
 #endif
